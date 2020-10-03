@@ -1,0 +1,23 @@
+##################################################
+########### IMPACTS FORECASTER NAMELIST ##########
+### THIS FILE CONTAINS PRESET VALUES TO RUN THE
+### FORECAST GENERATOR FOR DAILY BRIEFINGS. IF
+### MODIFYING THE BELOW VARIABLES, KEEP IN MIND
+### THAT SOME VARIABLES MUST BE CONFINED TO THE
+### SUPPLIED OPTIONS.
+#
+# MUST FOLLOW THE BELOW FORMAT --
+# VARIABLE = VALUE
+#
+downloadPath = .			# This sets the directory where graphics will be downloaded
+presentationPath = /home/disk/user_www/jfinlon/impacts/briefings
+presentationType = morning		# Select type of briefing to create: morning, evening
+modelList = gfs,nam,wrfgfs,wrfnam,gefs,cmc		# List of 1+ models to use (comma-separated) among: gfs, nam, hrrr
+initializeTime = now			# 'now', or time [YYYYMMDDHH] to designate as the start of the Day 0 period
+region = usne				# 'usne', 'usmw'
+crossSection = nw-se			# Orientation of SBU-WRF model cross sections centered on Long Island with options: n-s, nw-se, w-e, sw-ne
+showWeather = True			# Whether or not [True/False] to make slides showing the past and current weather
+showShortTerm = True			# Whether or not [True/False] to make slides showing the Day 0-2 and detailed forecast
+showDetailed = False		# Whether or not [True/False] to make slides showing Day 0-1 hourly WRF graphics
+showLongTerm = True			# Whether or not [True/False] to make slides showing the long-range forecast
+briefingUpdate = True			# Whether or not [True/False] to save the presentation as a new filename
