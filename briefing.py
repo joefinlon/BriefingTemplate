@@ -1142,7 +1142,7 @@ if presentationType=='morning':
                                          1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
                      'z500_spag':{'name': '500hPa Height', 'models':{'gefs', 'naefs'}, 'scope':{'namer'},
                                   'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}},
-                     'enslows':{'name': 'Pressure Centers', 'models':{'gefs', 'cmc'}, 'scope':{'namer'},
+                     'enslows':{'name': 'Pressure Centers', 'models':{'gefs', 'cmc','ecmwf'}, 'scope':{'namer'},
                                 'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}},
                      'qpf_prob_025':{'name': 'Prob. 6-h QPF > 0.25', 'models':{'gefs'}, 'scope':{'namer'},
                                      'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}}
@@ -1187,7 +1187,7 @@ elif presentationType=='evening':
                                          1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
                      'z500_spag':{'name': '500hPa Height', 'models':{'gefs', 'naefs'}, 'scope':{'namer'},
                                   'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}},
-                     'enslows':{'name': 'Pressure Centers', 'models':{'gefs', 'cmc'}, 'scope':{'namer'},
+                     'enslows':{'name': 'Pressure Centers', 'models':{'gefs', 'cmc','ecmwf'}, 'scope':{'namer'},
                                 'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}},
                      'qpf_prob_025':{'name': 'Prob. 6-h QPF > 0.25', 'models':{'gefs'}, 'scope':{'namer'},
                                      'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}}
@@ -1237,25 +1237,16 @@ img_paths = {'z500_minus12_uair_us':
 #               current12hr_shortStr, current12hr_locStr, current12hr_delta),
              'anl_minus12_surf_atl': 
              ('https://www.wpc.ncep.noaa.gov/sfc/usfntsfc{}wbg.gif'.format(past12hr_fullStr[8:10]),
-              'surfanl_conus.gif', 'Surface Analysis', past12hr_shortStr, past12hr_locStr, past12hr_delta),
+              'surfanl_past_conus.gif', 'Surface Analysis', past12hr_shortStr, past12hr_locStr, past12hr_delta),
              'anl_current_surf_atl':
-             ('/home/disk/funnel/impacts/archive/ops/sfc_anal/{}/ops.sfc_anal.{}.atlantic.gif'.format(
-                 current12hr_fullStr[0:8], current12hr_fullStr),
-              '/home/disk/funnel/impacts/archive/ops/sfc_anal/{}/ops.sfc_anal.{}.atlantic.gif'.format(
-                  current12hr_fullStr[0:8], current12hr_fullStr), 'Surface Analysis',
-              current12hr_shortStr, current12hr_locStr, current12hr_delta),
-             'ir_minus12_conus':
-             ('/home/disk/funnel/impacts/archive/ops/goes_east/{}/ops.goes_east.{}10.ir_4km.gif'.format(
-                 past12hr_fullStr[0:8], past12hr_fullStr[0:10]),
-              '/home/disk/funnel/impacts/archive/ops/goes_east/{}/ops.goes_east.{}10.ir_4km.gif'.format(
-                 past12hr_fullStr[0:8], past12hr_fullStr[0:10]), 'Satellite IR',
-              past12hr_shortStr, past12hr_locStr, past12hr_delta),
-             'ir_current_conus':
-             ('/home/disk/funnel/impacts/archive/ops/goes_east/{}/ops.goes_east.{}10.ir_4km.gif'.format(
-                 nearest1hr_fullStr[0:8], nearest1hr_fullStr[0:10]),
-              '/home/disk/funnel/impacts/archive/ops/goes_east/{}/ops.goes_east.{}10.ir_4km.gif'.format(
-                 nearest1hr_fullStr[0:8], nearest1hr_fullStr[0:10]), 'Satellite IR',
-              current12hr_shortStr, current12hr_locStr, current12hr_delta),
+             ('https://www.wpc.ncep.noaa.gov/sfc/usfntsfc00wbg.gif'.format(current12hr_fullStr[8:10]),
+              'surfanl_current_conus.gif', 'Surface Analysis', current12hr_shortStr, current12hr_locStr, current12hr_delta),
+             'sat_minus12_conus':
+             ('https://atmos.uw.edu/images/sat_east_impacts/{}10.color.jpg'.format(past12hr_fullStr[:10]),
+              'sat_past_eastUS.gif', 'Satellite VIS/IR', past12hr_shortStr, past12hr_locStr, past12hr_delta),
+             'sat_current_conus':
+             ('https://atmos.uw.edu/images/sat_east_impacts/{}10.color.jpg'.format(nearest1hr_fullStr[:10]),
+              'sat_current_eastUS.gif', 'Satellite VIS/IR', current12hr_shortStr, current12hr_locStr, current12hr_delta),
              'rad_minus12_conus': (['http://weather.rap.ucar.edu/radar/nids/images/N0R/KUSA/' + past12hr_fullStr[0:8] +
                                     '_' + past12hr_fullStr[8:] + '00BIG.png'][0], 'radar_past_conus.gif', 'CONUS Radar',
                                    past12hr_shortStr, past12hr_locStr, past12hr_delta),
@@ -1410,9 +1401,9 @@ for product in modelProducts.keys(): # Loop through available products
                                                    str(nearest12hr.hour).zfill(2) + '/gefs-mean-sprd_namer_' +
                                                    str(fhr_nearest12hr).zfill(3) + '_prob_precip_0.25in.gif'][0]
                                 elif product=='enslows':
-                                    remote_file = ['https://tropicaltidbits.com/analysis/models/gfs-ens/' +
-                                               nearest12hr_fullStr[:10] + '/gfs-ememb_lowlocs_us_' +
-                                               str(int(fhr_nearest12hr/6)+1) + '.png'][0]
+                                    remote_file = ['https://tropicaltidbits.com/analysis/models/gfs-ens/' +\
+                                        nearest12hr_fullStr[:10] + '/gfs-ememb_lowlocs_us_' +\
+                                        str(int(fhr_nearest12hr/6)+1) + '.png'][0]
                             elif model=='naefs':
                                 remote_file = ['https://weather.gc.ca/data/ensemble/images/' + nearest12hr_fullStr[:10] +
                                                '_054_E1_north@america_I_ENSEMBLE_spag@534_' +
@@ -1421,6 +1412,11 @@ for product in modelProducts.keys(): # Loop through available products
                                 remote_file = ['https://tropicaltidbits.com/analysis/models/gem-ens/' +
                                                nearest12hr_fullStr[:10] + '/gem-ememb_lowlocs_us_' +
                                                str(int(fhr_nearest12hr/6)+1) + '.png'][0]
+                            elif model=='ecmwf':
+                                remote_file = ['https://www.weathernerds.org/models/v3.0/ecens/sessions/ecens_'+\
+                                    nearest12hr_fullStr[:4] + '-' + nearest12hr_fullStr[4:6] + '-' +\
+                                    nearest12hr_fullStr[6:8] + '-' + nearest12hr_fullStr[8:10] + 'Z_' +\
+                                    str(fhr_nearest12hr).zfill(3) + '_55_230_20_300_MSLP_Surface_lows.png'][0]
                             local_file = '{}.png'.format(product_name)
                             product_string = '{} {}'.format(model.upper(), modelProducts[product]['name'])
                         elif 'ne' in scope: # HRRR snowband product from the WPC
@@ -1538,19 +1534,18 @@ def build_presentation(nearest6hr, present_time):
         print('\n  Making Day -1 slides')
         prs = bumper_slide(prs, 'Past {} Hours'.format(str(-1*past12hr_delta)), -1, past12hr, present_time)
         prs = full_summary(prs, 'Summary of Past {} Hours'.format(str(-1*past12hr_delta)), -1) # TODO: Cut this?
-        prs = four_panel_image(prs, ['rad_minus12_conus', 'ir_minus12_conus',
+        prs = four_panel_image(prs, ['rad_minus12_conus', 'sat_minus12_conus',
                                      'z500_minus12_uair_us', 'anl_minus12_surf_atl'], -1)
 
         # Current weather slides
         print('\n  Making Current Weather slides')
-        prs = four_panel_image(prs, ['rad_current_us', 'ir_current_conus',
+        prs = four_panel_image(prs, ['rad_current_us', 'sat_current_conus',
                                      'z500_current_uair_us', 'anl_current_surf_atl'], 0)
         prs = full_slide_image(prs, 'haz_current_ne', 0, datetime.utcnow(), width=8, height=6.9)
         prs = two_panel_image(prs, ['rad_current_wal', 'skewt_current_wal'], 0, [datetime.utcnow(), datetime.utcnow()],
                               title='Wallops Conditions & TAF')
         prs = two_panel_image(prs, ['rad_current_atl', 'skewt_current_atl'], 0, [datetime.utcnow(), datetime.utcnow()],
                               title='Dobbins Conditions & TAF')
-        prs = model_grid(prs, basedir) # test out the model grid slide here
 
     if show_shortTerm=='True':
         prs = bumper_slide(prs, 'Synoptic Forecast', [0, 1, 2], datetime(
@@ -1595,6 +1590,7 @@ def build_presentation(nearest6hr, present_time):
         #if 'overpass1' in img_paths.keys(): # at least one GPM overpass was found...make a slide
             #prs = six_panel_image(prs, ['overpass1', 'overpass2', 'overpass3', 'overpass4', 'overpass5', 'overpass6'],
                                   #[0, 1, 2], plotTimebar=False)
+        prs = model_grid(prs, basedir)
         prs = objectives_slide(prs, 'Day 0-2 Summary', [0, 1, 2])
         
     if show_detailed=='True':
@@ -1659,7 +1655,8 @@ def build_presentation(nearest6hr, present_time):
                 product1 = 'z500_spag_D{}H{}_gefs_namer'.format(str(day), str(hour).zfill(2))
                 product2 = 'enslows_D{}H{}_gefs_namer'.format(str(day), str(hour).zfill(2))
                 #product2 = 'z500_spag_D{}H{}_naefs_namer'.format(str(day), str(hour).zfill(2))
-                product3 = 'qpf_prob_025_D{}H{}_gefs_namer'.format(str(day), str(hour).zfill(2))
+                #product3 = 'qpf_prob_025_D{}H{}_gefs_namer'.format(str(day), str(hour).zfill(2))
+                product3 = 'enslows_D{}H{}_ecmwf_namer'.format(str(day), str(hour).zfill(2))
                 product4 = 'enslows_D{}H{}_cmc_namer'.format(str(day), str(hour).zfill(2))
                 prs = four_panel_image(prs, [product1, product2, product3, product4], 3)
 
