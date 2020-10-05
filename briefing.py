@@ -393,7 +393,78 @@ def timeline_slide(prs, curday, presentationType, products=None):
         # Add the timeline
         slide = add_timeline(slide, 3)
         return prs
+
+def model_grid(prs, basedir):
+    """
+    Make a 4x4 grid of placeholder images for models (rows) over time (cols)
+    """
+    slide_layout = prs.slide_layouts[layout['Title Alone']]
+    slide = prs.slides.add_slide(slide_layout)
+
+    # Col titles
+    txt = slide.shapes.add_textbox(left=Inches(0.0), top=Inches(0.1), width=Inches(1.5), height=Inches(0.5))
+    tf = txt.text_frame; para = tf.add_paragraph()
+    r = para.add_run(); r.text = '6-h Ptype'; r.font.bold = True; r.font.size = Pt(18) # model field
+    r.font.color.rgb = RGBColor(65, 105, 225)
+    para.alignment = PP_ALIGN.CENTER
+
+    txt = slide.shapes.add_textbox(left=Inches(1.75), top=Inches(0.1), width=Inches(1.81), height=Inches(0.5))
+    tf = txt.text_frame; para = tf.add_paragraph()
+    r = para.add_run(); r.text = '00-06 UTC'; r.font.bold = True; r.font.size = Pt(18)
+    para.alignment = PP_ALIGN.CENTER
+
+    txt = slide.shapes.add_textbox(left=Inches(3.75), top=Inches(0.1), width=Inches(1.81), height=Inches(0.5))
+    tf = txt.text_frame; para = tf.add_paragraph()
+    r = para.add_run(); r.text = '06-12 UTC'; r.font.bold = True; r.font.size = Pt(18)
+    para.alignment = PP_ALIGN.CENTER
+
+    txt = slide.shapes.add_textbox(left=Inches(5.75), top=Inches(0.1), width=Inches(1.81), height=Inches(0.5))
+    tf = txt.text_frame; para = tf.add_paragraph()
+    r = para.add_run(); r.text = '12-18 UTC'; r.font.bold = True; r.font.size = Pt(18)
+    para.alignment = PP_ALIGN.CENTER
+
+    txt = slide.shapes.add_textbox(left=Inches(7.75), top=Inches(0.1), width=Inches(1.81), height=Inches(0.5))
+    tf = txt.text_frame; para = tf.add_paragraph()
+    r = para.add_run(); r.text = '18-00 UTC'; r.font.bold = True; r.font.size = Pt(18)
+    para.alignment = PP_ALIGN.CENTER
+
+    # Row titles
+    txt = slide.shapes.add_textbox(left=Inches(0.0), top=Inches(1.1), width=Inches(1.5), height=Inches(0.5))
+    tf = txt.text_frame; para = tf.add_paragraph()
+    r = para.add_run(); r.text = '06Z GFS'; r.font.bold = True; r.font.size = Pt(18)
+    para.alignment = PP_ALIGN.CENTER
+
+    txt = slide.shapes.add_textbox(left=Inches(0.0), top=Inches(2.7), width=Inches(1.5), height=Inches(0.5))
+    tf = txt.text_frame; para = tf.add_paragraph()
+    r = para.add_run(); r.text = '00Z ECMWF'; r.font.bold = True; r.font.size = Pt(18)
+    para.alignment = PP_ALIGN.CENTER
+
+    txt = slide.shapes.add_textbox(left=Inches(0.0), top=Inches(4.3), width=Inches(1.5), height=Inches(0.5))
+    tf = txt.text_frame; para = tf.add_paragraph()
+    r = para.add_run(); r.text = '00Z CMC'; r.font.bold = True; r.font.size = Pt(18)
+    para.alignment = PP_ALIGN.CENTER
+
+    txt = slide.shapes.add_textbox(left=Inches(0.0), top=Inches(5.9), width=Inches(1.5), height=Inches(0.5))
+    tf = txt.text_frame; para = tf.add_paragraph()
+    r = para.add_run(); r.text = '06Z NAM-12'; r.font.bold = True; r.font.size = Pt(18)
+    para.alignment = PP_ALIGN.CENTER
     
+    # Now the panels
+    lefts = [1.75, 3.75, 5.75, 7.75]; tops = [0.85, 2.45, 4.05, 5.65]
+    widthval = 1.81; heightval = 1.49
+    for rownum in range(4):
+        for colnum in range(4):
+            try:
+                pic = slide.shapes.add_picture(basedir+'/grid_blank.png', left=Inches(lefts[colnum]), top=Inches(tops[rownum]),\
+                    width=Inches(widthval),height=Inches(heightval))
+            except:
+                pass
+
+    # Add the timeline
+    slide = add_timeline(slide, [0, 1])
+
+    return prs
+
 def probability_table(prs, titletxt, curday):
     """
     Make an empty slide and insert the probabilities for various events
@@ -1143,7 +1214,7 @@ elif presentationType=='evening':
 # First gather the observational plots
 
 [wal_url, wal_datestr] = get_latest_radar('DOX') # Get timestamp info for the most recent radar image
-[chs_url, chs_datestr] = get_latest_radar('CLX') # Get timestamp info for the most recent radar image
+[atl_url, atl_datestr] = get_latest_radar('FFC') # Get timestamp info for the most recent radar image
 img_paths = {'z500_minus12_uair_us':
              (['https://climate.cod.edu/data/upper/US/contour/USvort.'+ past12hr_fullStr[0:8] + '.' +
                past12hr_fullStr[8:10] + '.gif'][0], 'vort500_past_conus.gif', '500-mb Heights, Vorticity',
@@ -1477,8 +1548,9 @@ def build_presentation(nearest6hr, present_time):
         prs = full_slide_image(prs, 'haz_current_ne', 0, datetime.utcnow(), width=8, height=6.9)
         prs = two_panel_image(prs, ['rad_current_wal', 'skewt_current_wal'], 0, [datetime.utcnow(), datetime.utcnow()],
                               title='Wallops Conditions & TAF')
-        prs = two_panel_image(prs, ['rad_current_chs', 'skewt_current_chs'], 0, [datetime.utcnow(), datetime.utcnow()],
+        prs = two_panel_image(prs, ['rad_current_atl', 'skewt_current_atl'], 0, [datetime.utcnow(), datetime.utcnow()],
                               title='Dobbins Conditions & TAF')
+        prs = model_grid(prs, basedir) # test out the model grid slide here
 
     if show_shortTerm=='True':
         prs = bumper_slide(prs, 'Synoptic Forecast', [0, 1, 2], datetime(
