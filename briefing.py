@@ -19,6 +19,7 @@
 ### IMPORT PYTHON PACKAGES
 from datetime import time as dtime
 from datetime import datetime, timedelta
+import time
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
@@ -1374,6 +1375,7 @@ if ('ref3km_frzn' in modelProducts.keys()) and ('hrrr' in modelList):
         os.system('wget -O temp '+urlpath)
         os.system('rm temp')
         print('  Requested HRRR images ({} region) from the NOAA server'.format(scope_str))
+        time.sleep(15)
 
 # Products to skip. Follows the tuple format: (model, product name)
 skip = [('','')] 
