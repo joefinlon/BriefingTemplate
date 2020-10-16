@@ -1371,8 +1371,9 @@ if ('ref3km_frzn' in modelProducts.keys()) and ('hrrr' in modelList):
             nearest6hr_fullStr[:10]+'&plot_type=all1ref_'+scope+\
             'sfc&fcst=00&time_inc=60&num_times=49&model=hrrr&ptitle=HRRR%20Model%20Fields%20-%20Experimental&maxFcstLen=48&fcstStrLen=-1&domain='+\
             scope+'&adtfn=1&threshold=&attfn=-1&wjet=0'][0]
-        # command = 'wget '
-        os.system('wget -O temp '+urlpath)
+        command = 'wget -O temp "' + urlpath + '"'
+        print(command)
+        os.system(command)
         os.system('rm temp')
         print('  Requested HRRR images ({} region) from the NOAA server'.format(scope_str))
         time.sleep(15)
@@ -1755,11 +1756,11 @@ def build_presentation(nearest6hr, present_time):
 
     # Save the presentation
     if briefingUpdate=='True':
-        prs.save('{}/forecast.wxbriefing.{}.{}_new.pptx'.format(
-            presentationPath, datetime.strftime(present_time, '%Y%m%d'), briefingString))
+        prs.save('{}/report.weather.{}.discussion_new.pptx'.format(
+            presentationPath, datetime.strftime(present_time, '%Y%m%d%H%M')))
     else:
-        prs.save('{}/forecast.wxbriefing.{}.{}.pptx'.format(
-            presentationPath, datetime.strftime(present_time, '%Y%m%d'), briefingString))
+        prs.save('{}/report.weather.{}.discussion.pptx'.format(
+            presentationPath, datetime.strftime(present_time, '%Y%m%d%H%M')))
     
 if __name__ == '__main__':
     build_presentation(nearest6hr, present_time)
