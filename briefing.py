@@ -135,10 +135,10 @@ def get_meteogram_url(nearest1hr, location='KWAL'):
 
     if location=='KWAL':
         meteogram_url = ['https://forecast.weather.gov/meteograms/Plotter.php?lat=37.9407&lon=-75.4674&wfo=AKQ&zcode=VAZ099&gset=15&gdiff=5&unit=0&tinfo=EY5&ahour='+\
-            str(starthr)+'&pcmd=11001111110000011000000000000000000000000000000000000000000&indu=0!1!1!&hrspan='+str(endhr)+'&pqpfhr=3&psnwhr=3.png'][0]
+            str(starthr)+'&pcmd=11001111011000111000000000000000000000000000000000000000000&indu=0!1!1!&hrspan='+str(endhr)+'&pqpfhr=3&psnwhr=3.png'][0]
     elif location=='KFFC':
         meteogram_url = ['https://forecast.weather.gov/meteograms/Plotter.php?lat=33.9154&lon=-84.5163&wfo=FFC&zcode=GAZ032&gset=15&gdiff=5&unit=0&tinfo=EY5&ahour='+\
-            str(starthr)+'&pcmd=11101111110000011000000000000000000000000000000000000000000&indu=0!1!1!&hrspan='+str(endhr)+'&pqpfhr=3&psnwhr=3.png'][0]
+            str(starthr)+'&pcmd=11001111011000111000000000000000000000000000000000000000000&indu=0!1!1!&hrspan='+str(endhr)+'&pqpfhr=3&psnwhr=3.png'][0]
     else:
         print('   Location not supported for meteogram.')
         return None
@@ -1067,7 +1067,7 @@ briefingUpdate = df.loc[12, 'Value']
 if df.loc[5, 'Value']=='now':
     utcnow = datetime.utcnow()
 else:
-    utcnow = datetime.strptime(df.loc[4, 'Value'], '%Y%m%d%H')
+    utcnow = datetime.strptime(df.loc[5, 'Value'], '%Y%m%d%H')
     print('WARNING: Some model data may have been scrubbed for the selected period...beware.')
 
 # If statements regaring the presentation type and time the program is executed
@@ -1323,7 +1323,9 @@ img_paths = {'z500_minus12_uair_us':
                   current12hr_fullStr[0:8], current12hr_fullStr), 'Atlanta Sounding',
               current12hr_shortStr, current12hr_locStr, current12hr_delta),
              'haz_current': ('https://maps8.pivotalweather.com/maps/warnings/nwshaz.us_{}.png'.format(region[2:]),\
-                'hazards_{}.png'.format(region[2:]), 'Current Hazards', current_shortStr, current_locStr, current_delta),
+                'hazards_{}.png'.format(region[2:]), region_value, current_shortStr, current_locStr, current_delta),
+            'haz_current_se': ('https://maps8.pivotalweather.com/maps/warnings/nwshaz.us_se.png', 'hazards_se.png',\
+                'Southeast', current_shortStr, current_locStr, current_delta),
              'snprob_day2_us':
              ('https://www.wpc.ncep.noaa.gov/wwd/day2_psnow_gt_04.gif', 'day2_psnow_gt_04.gif', 'Snow Prob. > 4 in. (Day 2)',\
               current12hr_shortStr, current12hr_locStr, current12hr_delta),
@@ -1367,7 +1369,7 @@ img_paths = {'z500_minus12_uair_us':
 # Initiate HRRR plot saving to NOAA server if product is requested
 if ('ref3km_frzn' in modelProducts.keys()) and ('hrrr' in modelList):
     for scope, scope_str in zip(['t3', 't7'], ['Northeast', 'Midwest']): # Loop through the northeast and midwest/great lakes regions
-        urlpath = ['https://rapidrefresh.noaa.gov/hrrr/HRRR/displayMapLocalDiskDateDomainZipTZA.cgi?keys=hrrr_jet:&runtime='+\
+        urlpath = ['https://rapidrefresh.noaa.gov/hrrr/HRRR/displayMapLocalDiskDateDomainZipTZA.cgi?keys=hrrr_ncep_jet:&runtime='+\
             nearest6hr_fullStr[:10]+'&plot_type=all1ref_'+scope+\
             'sfc&fcst=00&time_inc=60&num_times=49&model=hrrr&ptitle=HRRR%20Model%20Fields%20-%20Experimental&maxFcstLen=48&fcstStrLen=-1&domain='+\
             scope+'&adtfn=1&threshold=&attfn=-1&wjet=0'][0]
@@ -1509,7 +1511,7 @@ for product in modelProducts.keys(): # Loop through available products
                             elif (model=='hrrr'):
                                 if product=='ref3km_frzn':
                                     scope_string = 't3' if scope=='neus' else 't7'
-                                    remote_file = ['https://rapidrefresh.noaa.gov/hrrr/HRRR/for_web/hrrr_jet/' +\
+                                    remote_file = ['https://rapidrefresh.noaa.gov/hrrr/HRRR/for_web/hrrr_ncep_jet/' +\
                                         nearest6hr_fullStr[:10] + '/' + scope_string + '/1ref_' + scope_string +\
                                         'sfc_f' + str(int(fhr_nearest6hr)) + '.png'][0]
                                 local_file = '{}.png'.format(product_name)
@@ -1610,12 +1612,13 @@ def build_presentation(nearest6hr, present_time):
         print('\n  Making Current Weather slides')
         prs = four_panel_image(prs, ['rad_current_us', 'sat_current_conus',
                                      'z500_current_uair_us', 'anl_current_surf_atl'], 0, link=True)
-        prs = full_slide_image(prs, 'haz_current', 0, datetime.utcnow(), width=8, height=6.9)
-        prs = two_panel_image(prs, ['rad_current_wal', 'skewt_current_wal'], 0, [datetime.utcnow(), datetime.utcnow()],\
-                              lowertext=['https://aviationweather.gov/taf/data?ids=KMGE,KWAL,KSBY&format=raw&metars=on&layout=off', ''], title='Wallops Conditions & METAR')
-        prs = two_panel_image(prs, ['rad_current_atl', 'skewt_current_atl'], 0, [datetime.utcnow(), datetime.utcnow()],\
-                              title='Dobbins Conditions & METAR')
-        prs = two_panel_image(prs, ['mgram_wal', 'mgram_ffc'], 0, [datetime.utcnow(), datetime.utcnow()], title='KWAL & KMGE Forecast & TAF')
+        # prs = full_slide_image(prs, 'haz_current', 0, datetime.utcnow(), width=8, height=6.9)
+        prs = two_panel_image(prs, ['haz_current', 'haz_current_se'], 0, [datetime.utcnow(), datetime.utcnow()],\
+            lowertext=[img_paths['haz_current'][0], img_paths['haz_current_se'][0]], title='Current Hazards')
+        prs = two_panel_image(prs, ['rad_current_wal', 'skewt_current_wal'], 0, [datetime.utcnow(), datetime.utcnow()], title='Wallops Conditions & METAR')
+        prs = two_panel_image(prs, ['rad_current_atl', 'skewt_current_atl'], 0, [datetime.utcnow(), datetime.utcnow()], title='Dobbins Conditions & METAR')
+        prs = two_panel_image(prs, ['mgram_wal', 'mgram_ffc'], 0, [datetime.utcnow(), datetime.utcnow()],\
+            lowertext=['https://aviationweather.gov/taf/data?ids=KMGE,KWAL,KSBY&format=decoded&metars=on&layout=on', ''], title='KWAL & KMGE Forecast & TAF')
 
     if show_shortTerm=='True':
         prs = bumper_slide(prs, 'Synoptic Forecast', [0, 1, 2], datetime(
@@ -1693,9 +1696,9 @@ def build_presentation(nearest6hr, present_time):
                 # product2 = '500hv_D0H{}_wrfuiuc_mwus'.format(str(hour).zfill(2))
                 # product3 = '700hw_D0H{}_wrfuiuc_mwus'.format(str(hour).zfill(2))
                 # product4 = '925hs_D0H{}_wrfuiuc_mwus'.format(str(hour).zfill(2))
-                product1 = 'ref_frzn_D0H{}_gfs_ncus'.format(str(int(6*np.floor(hour/6.))).zfill(2))
+                product1 = 'ref3km_frzn_D0H{}_nam3km_ncus'.format(str(hour).zfill(2))
                 product2 = 'ref3km_frzn_D0H{}_hrrr_ncus'.format(str(hour).zfill(2))
-                product3 = 'ref3km_frzn_D0H{}_nam3km_ncus'.format(str(hour).zfill(2))
+                product3 = 'ref_frzn_D0H{}_gfs_ncus'.format(str(int(6*np.floor(hour/6.))).zfill(2))
                 product4 = 'ref3km_frzn_D0H{}_hrrr_neus'.format(str(hour).zfill(2))
                 prs = four_panel_image(prs, [product1, product2, product3, product4], 0)
 
@@ -1714,14 +1717,14 @@ def build_presentation(nearest6hr, present_time):
                 # product6 = 'xsect_MPV_dthetaEdz_fgen_D1H{}_wrfnam_xsect'.format(str(hour).zfill(2))
                 product6 = 'ref3km_frzn_D1H{}_hrrr_neus'.format(str(hour).zfill(2))
                 prs = six_panel_image(prs, [product1, product2, product3, product4, product5, product6], 1)
-            elif (region=='usmw') and ('wrfuiuc' in modelList):
+            elif (region=='usmw') and ('nam3km' in modelList):
                 # product1 = 'dbz1km_D0H{}_wrfuiuc_mwus'.format(str(hour).zfill(2))
                 # product2 = '500hv_D0H{}_wrfuiuc_mwus'.format(str(hour).zfill(2))
                 # product3 = '700hw_D0H{}_wrfuiuc_mwus'.format(str(hour).zfill(2))
                 # product4 = '925hs_D0H{}_wrfuiuc_mwus'.format(str(hour).zfill(2))
-                product1 = 'ref_frzn_D1H{}_gfs_ncus'.format(str(int(6*np.floor(hour/6.))).zfill(2)) if hour>=12 else 'ref_frzn_D0H30_gfs_ncus'
+                product1 = 'ref3km_frzn_D1H{}_nam3km_ncus'.format(str(hour).zfill(2))
                 product2 = 'ref3km_frzn_D1H{}_hrrr_ncus'.format(str(hour).zfill(2))
-                product3 = 'ref3km_frzn_D1H{}_nam3km_ncus'.format(str(hour).zfill(2))
+                product3 = 'ref_frzn_D1H{}_gfs_ncus'.format(str(int(6*np.floor(hour/6.))).zfill(2)) if hour>=12 else 'ref_frzn_D0H30_gfs_ncus'
                 product4 = 'ref3km_frzn_D1H{}_hrrr_neus'.format(str(hour).zfill(2))
                 prs = four_panel_image(prs, [product1, product2, product3, product4], 1)
 
@@ -1756,11 +1759,19 @@ def build_presentation(nearest6hr, present_time):
 
     # Save the presentation
     if briefingUpdate=='True':
-        prs.save('{}/report.weather.{}.discussion_new.pptx'.format(
-            presentationPath, datetime.strftime(present_time, '%Y%m%d%H%M')))
+        if region=='usmw':
+            prs.save('{}/report.weather_midwest.{}.discussion_new.pptx'.format(
+                presentationPath, datetime.strftime(present_time, '%Y%m%d%H%M')))
+        else:
+            prs.save('{}/report.weather.{}.discussion_new.pptx'.format(
+                presentationPath, datetime.strftime(present_time, '%Y%m%d%H%M')))
     else:
-        prs.save('{}/report.weather.{}.discussion.pptx'.format(
-            presentationPath, datetime.strftime(present_time, '%Y%m%d%H%M')))
+        if region=='usmw':
+            prs.save('{}/report.weather_midwest.{}.discussion.pptx'.format(
+                presentationPath, datetime.strftime(present_time, '%Y%m%d%H%M')))
+        else:
+            prs.save('{}/report.weather.{}.discussion.pptx'.format(
+                presentationPath, datetime.strftime(present_time, '%Y%m%d%H%M')))
     
 if __name__ == '__main__':
     build_presentation(nearest6hr, present_time)
