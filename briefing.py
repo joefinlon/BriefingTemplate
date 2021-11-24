@@ -29,22 +29,52 @@ from pptx.enum.text import PP_ALIGN, MSO_VERTICAL_ANCHOR
 from PIL import Image
 import os, sys, re, glob
 import urllib
+import urllib.request
 import numpy as np
 import pandas as pd
 ##################################################
 ### AUXILLARY FUNCTIONS
 # Get timestamp of most recent regional radar image
-def get_latest_radar(radarID):
-    url = 'http://weather.rap.ucar.edu/radar/nids/images/K' + radarID + '/'
-
-    with urllib.request.urlopen(url) as response:
-        encoding = response.info().get_param('charset', 'utf8')
-        html = response.read().decode(encoding)
-
-    links = re.findall(r'href=[\'"]?([^\'" >]+)', html) # Find all url instances on the parent (radar site) webpage
-    rad_datestr = links[-1][:15] # The last link on the webpage is the latest image...parse the timestamp
+def get_latest_radar(radarID, nearest1hr):
+    url = (
+        'https://weather.rap.ucar.edu/data/radar/'
+        + datetime.strftime(utcnow, '%Y%m%d') + '/K' + radarID + '/BREF/')
+    print(url)
+    try:
+        with urllib.request.urlopen(url) as response:
+            encoding = response.info().get_param('charset', 'utf8')
+            html = response.read().decode(encoding)
+        links = re.findall(r'href=[\'"]?([^\'" >]+)', html) # Find all url instances on the parent (radar site) webpage
+        rad_datestr = links[-1][:20] # The last link on the webpage is the latest image...parse the timestamp
+    except:
+        links = None
+        rad_datestr = None
+        print(' No radar data for ' + radarID)
 
     return (url, rad_datestr)
+
+def query_skewt(uaID, current12hr):
+    '''
+    Initiate HTTP request so that UWYO site can create a skew-T for saving.
+    
+    Parameters
+    ----------
+    uaID: 5-digit ID of the upper air site
+    current12hr: datetime of the current 12-hour (00, 12 UTC) period
+    '''
+    
+    urlpath = ('http://weather.uwyo.edu/cgi-bin/sounding?region=naconf'
+               + '&TYPE=GIF%3ASKEWT&YEAR=' + current12hr_shortStr[:4]
+               + '&MONTH=' + current12hr_shortStr[4:6] + '&FROM='
+               + current12hr_shortStr[6:] + '&TO=' + current12hr_shortStr[6:]
+               + '&STNM=' + str(uaID))
+    command = 'wget -O temp "' + urlpath + '"'
+    os.system(command)
+    os.system('rm temp')
+    print('  Requested skew-T for station ID ' + str(uaID))
+    time.sleep(5)
+    
+    
 
 def dt_nearestTimes(yr, mn, dy, hr):
     # Gets the datetime corresponding to the nearest 1, 6, and 12 hour time for model initialization, etc.
@@ -136,8 +166,8 @@ def get_meteogram_url(nearest1hr, location='KWAL'):
     if location=='KWAL':
         meteogram_url = ['https://forecast.weather.gov/meteograms/Plotter.php?lat=37.9407&lon=-75.4674&wfo=AKQ&zcode=VAZ099&gset=15&gdiff=5&unit=0&tinfo=EY5&ahour='+\
             str(starthr)+'&pcmd=11001111011000111000000000000000000000000000000000000000000&indu=0!1!1!&hrspan='+str(endhr)+'&pqpfhr=3&psnwhr=3.png'][0]
-    elif location=='KFFC':
-        meteogram_url = ['https://forecast.weather.gov/meteograms/Plotter.php?lat=33.9154&lon=-84.5163&wfo=FFC&zcode=GAZ032&gset=15&gdiff=5&unit=0&tinfo=EY5&ahour='+\
+    elif location=='KPOB':
+        meteogram_url = ['https://forecast.weather.gov/meteograms/Plotter.php?lat=35.1724&lon=-79.0109&wfo=RAH&zcode=NCZ088&gset=15&gdiff=5&unit=0&tinfo=EY5&ahour='+\
             str(starthr)+'&pcmd=11001111011000111000000000000000000000000000000000000000000&indu=0!1!1!&hrspan='+str(endhr)+'&pqpfhr=3&psnwhr=3.png'][0]
     else:
         print('   Location not supported for meteogram.')
@@ -285,10 +315,13 @@ def add_timeline(slide, curday):
         shape.line.color.rgb = daycolor[day]
         r = shape.text_frame.paragraphs[0].add_run()
         if day == 3:
-            r.text = 'Day {:d}+ ({:%d %b}-)'.format(day, present_time + timedelta(days=day))
+            r.text = 'Day {:d}+ ({:%d %b}-)'.format(
+                day, present_time + timedelta(days=day))
+            r.font.size = Pt(14)
         else:
-            r.text = 'Day {:d} ({:%d %b})'.format(day, present_time + timedelta(days=day))
-        r.font.size = Pt(14)
+            r.text = 'Day {:d} ({:%a %d %b})'.format(
+                day, present_time + timedelta(days=day))
+            r.font.size = Pt(12)
         left += width - Inches(0.05)
         shape.fill.solid()
         if type(curday) is list:
@@ -346,16 +379,21 @@ def timeline_slide(prs, curday, presentationType, products=None):
         
         shapes = slide.shapes
         for day in range(0, 3):
-            shape = shapes.add_shape(MSO_SHAPE.CHEVRON, chevron_left, chevron_top, Inches(chevron_width[day]),
-                                     chevron_height)
+            shape = shapes.add_shape(
+                MSO_SHAPE.CHEVRON, chevron_left, chevron_top,
+                Inches(chevron_width[day]), chevron_height)
             shape.line.color.rgb = daycolor[day]
             r = shape.text_frame.paragraphs[0].add_run()
-            r.text = 'Day {:d} ({:%d %b})'.format(day, present_time + timedelta(days=day)); r.font.size = Pt(14);
+            r.text = 'Day {:d} ({:%a %d %b})'.format(
+                day, present_time + timedelta(days=day))
+            r.font.size = Pt(14)
             chevron_left += Inches(chevron_width[day]) - Inches(0.05)
-            shape.fill.solid(); shape.fill.fore_color.rgb = daycolor[day];
+            shape.fill.solid()
+            shape.fill.fore_color.rgb = daycolor[day]
             
         # Add placeholder text
-        txt         =   slide.shapes.add_textbox(Inches(0.),Inches(6.),Inches(10.),Inches(0.5))
+        txt         =   slide.shapes.add_textbox(
+            Inches(0.),Inches(6.),Inches(10.),Inches(0.5))
         tf          =   txt.text_frame
         para        =   tf.add_paragraph()
         r           =   para.add_run()
@@ -387,8 +425,9 @@ def timeline_slide(prs, curday, presentationType, products=None):
             if panel == []: # No image found for current product, model, time, and scope configuration
                 continue
             try:
-                pic = slide.shapes.add_picture(panel[0], left=Inches(lefts[panelnum]), top=Inches(tops[panelnum]),
-                                               width=Inches(widthval), height=Inches(heightval))
+                pic = slide.shapes.add_picture(
+                    panel[0], left=Inches(lefts[panelnum]), top=Inches(tops[panelnum]),
+                    width=Inches(widthval), height=Inches(heightval))
             except:
                 pass
         
@@ -396,15 +435,21 @@ def timeline_slide(prs, curday, presentationType, products=None):
         chevron_width = Inches(9.5/3.)
         shapes = slide.shapes
         for day in range(3, 6):
-            shape = shapes.add_shape(MSO_SHAPE.CHEVRON, chevron_left, chevron_top, chevron_width, chevron_height)
+            shape = shapes.add_shape(
+                MSO_SHAPE.CHEVRON, chevron_left, chevron_top, chevron_width,
+                chevron_height)
             shape.line.color.rgb = daycolor[3]
             r = shape.text_frame.paragraphs[0].add_run()
-            r.text = 'Day {:d} ({:%d %b})'.format(day, present_time + timedelta(days=day)); r.font.size = Pt(14);
+            r.text = 'Day {:d} ({:%a %d %b})'.format(
+                day, present_time + timedelta(days=day))
+            r.font.size = Pt(14)
             chevron_left += chevron_width - Inches(0.05)
-            shape.fill.solid(); shape.fill.fore_color.rgb = daycolor[3];
+            shape.fill.solid()
+            shape.fill.fore_color.rgb = daycolor[3]
             
         # Add placeholder text
-        txt         =   slide.shapes.add_textbox(Inches(0.),Inches(6.),Inches(10.),Inches(0.5))
+        txt         =   slide.shapes.add_textbox(
+            Inches(0.),Inches(6.),Inches(10.),Inches(0.5))
         tf          =   txt.text_frame
         para        =   tf.add_paragraph()
         r           =   para.add_run()
@@ -478,8 +523,10 @@ def model_grid(prs, basedir):
     for rownum in range(4):
         for colnum in range(4):
             try:
-                pic = slide.shapes.add_picture(basedir+'/grid_blank.png', left=Inches(lefts[colnum]), top=Inches(tops[rownum]),\
-                    width=Inches(widthval),height=Inches(heightval))
+                pic = slide.shapes.add_picture(
+                    basedir + '/grid_blank.png', left=Inches(lefts[colnum]),
+                    top=Inches(tops[rownum]), width=Inches(widthval),
+                    height=Inches(heightval))
             except:
                 pass
 
@@ -958,8 +1005,9 @@ def four_panel_image(prs, products, curday, link=False):
         if panel[0] is None: # No image found for current product, model, time, and scope configuration
             continue
         try:
-            pic = slide.shapes.add_picture(panel[0], left=Inches(lefts[panelnum]), top=Inches(tops[panelnum]),
-                                           width=Inches(widthval),height=Inches(heightval))
+            pic = slide.shapes.add_picture(
+                panel[0], left=Inches(lefts[panelnum]), top=Inches(tops[panelnum]),
+                width=Inches(widthval),height=Inches(heightval))
             if (link is True) and (img_paths[products[panelnum]][0] is not None):
                 pic.click_action.hyperlink.address = img_paths[products[panelnum]][0]
         except:
@@ -1022,8 +1070,9 @@ def six_panel_image(prs, products, curday, plotTimebar=True):
         if panel[0] is None: # No image found for current product, model, time, and scope configuration
             continue
         try:
-            pic = slide.shapes.add_picture(panel[0], left=Inches(lefts[panelnum]), top=Inches(tops[panelnum]),
-                                           width=Inches(widthval),height=Inches(heightval))
+            pic = slide.shapes.add_picture(
+                panel[0], left=Inches(lefts[panelnum]), top=Inches(tops[panelnum]),
+                width=Inches(widthval),height=Inches(heightval))
         except:
             pass
 
@@ -1068,14 +1117,16 @@ if df.loc[5, 'Value']=='now':
     utcnow = datetime.utcnow()
 else:
     utcnow = datetime.strptime(df.loc[5, 'Value'], '%Y%m%d%H')
-    print('WARNING: Some model data may have been scrubbed for the selected period...beware.')
+    print(
+        'WARNING: Some model data may have been scrubbed for the selected period...beware.')
 
 # If statements regaring the presentation type and time the program is executed
 if presentationType=='morning':
     briefingString = 'morning' # for file naming conventions
     present_time = datetime(utcnow.year, utcnow.month, utcnow.day, presentationHour, 0)
     if utcnow.hour<5 or utcnow.hour>17:
-        print('Are you sure you meant to select the morning briefing period? Changing to the evening period now...')
+        print(
+            'Are you sure you meant to select the morning briefing period? Changing to the evening period now...')
         presentationType = 'evening'
 
 if presentationType=='evening':
@@ -1138,52 +1189,49 @@ print('   Using {} as the initialization time for the model runs'.format(nearest
 ##################################################
 ### POPULATE MODEL PRODUCT DIRECTORY
 if presentationType=='morning':
-    modelProducts = {'z500_vort':{'name':'500hPa Height, Vorticity', 'models':{'gfs', 'nam'}, 'scope':{'us'},
-                                  'times':{0:[18,24,30], 1:[12,18,24,30], 2:[12,18,24,30]}},
-                     'temp_adv_fgen_700':{'name':'700hPa TAdv, Fronto', 'models':{'gfs', 'nam'}, 'scope':{'us'},
-                                          'times':{0:[18,24,30], 1:[12,18,24,30], 2:[12,18,24,30]}},
-                     'ref_frzn':{'name':'dBZ, MSLP', 'models':{'gfs', 'nam'}, 'scope':{'us','neus', 'ncus'},
-                                 'times':{0:[18,24,30], 1:[12,18,24,30], 2:[12,18,24,30], 3:[12, 24], 4:[12, 24], 5:[12, 24]}},
-                     'ref3km_frzn':{'name':'dBZ, MSLP', 'models':{'nam3km', 'hrrr'}, 'scope':{'neus', 'ncus'},\
-                                    'times':{0:[21,22,23,24,25,26,27,28,29,30],\
-                                             1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-                     'refl_10cm':{'name':'dBZ, MSLP', 'models':{'wrfgfs', 'wrfnam'}, 'scope':{'eus'},
-                                  'times':{0:[21,22,23,24,25,26,27,28,29,30],
-                                           1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-                    #  '700_dBZfronto':{'name': '700hPa Fronto + dBZ', 'models':{'wrfgfs', 'wrfnam'},
-                    #                   'scope':{'us', 'eus', 'ne'},
-                    #                   'times':{0:[21,22,23,24,25,26,27,28,29,30],
-                    #                            1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-                    #  'xsect_MPV_dthetaEdz_fgen':{'name': '{} MPV, Fronto'.format(xSection),
-                    #                                'models':{'wrfgfs', 'wrfnam'}, 'scope':{'xsect'},
-                    #                                'times':{0:[21,22,23,24,25,26,27,28,29,30],
-                    #                                         1:[7,8,9,10,11,12,13,14,15,16,
-                    #                                            17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-#                      'temps_700':{'name': '700hPa Temp, Height', 'models':{'wrfgfs', 'wrfnam'}, 'scope':{'eus'},
-#                                   'times':{0:[18,19,20,21,22,23,24,25,26,27,28,29,30],
-#                                            1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-#                      'xsect_dBZfronto':{'name': '{} dBZ, Fronto'.format(xSection), 'models':{'wrfgfs', 'wrfnam'},
-#                                         'scope':{'xsect'},
-#                                         'times':{0:[18,19,20,21,22,23,24,25,26,27,28,29,30],
-#                                                  1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-                     'dbz1km': {'name': 'dBZ, MSLP', 'models':{'wrfuiuc'}, 'scope':{'mwus'},
-                                'times':{0:[18,19,20,21,22,23,24,25,26,27,28,29,30],
-                                         1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-                     '700hw': {'name': '700hPa Height, Vert. Vel.', 'models':{'wrfuiuc'}, 'scope':{'mwus'},
-                                'times':{0:[18,19,20,21,22,23,24,25,26,27,28,29,30],
-                                         1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-                     '500hv': {'name': '500hPa Height, Vort.', 'models':{'wrfuiuc'}, 'scope':{'mwus'},
-                                'times':{0:[18,19,20,21,22,23,24,25,26,27,28,29,30],
-                                         1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-                     '925hs': {'name': '925hPa Height, Wind', 'models':{'wrfuiuc'}, 'scope':{'mwus'},
-                                'times':{0:[18,19,20,21,22,23,24,25,26,27,28,29,30],
-                                         1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-                     'z500_spag':{'name': '500hPa Height', 'models':{'gefs', 'naefs'}, 'scope':{'namer'},
-                                  'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}},
-                     'enslows':{'name': 'Pressure Centers', 'models':{'gefs', 'cmc','ecmwf'}, 'scope':{'namer'},
-                                'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}},
-                     'qpf_prob_025':{'name': 'Prob. 6-h QPF > 0.25', 'models':{'gefs'}, 'scope':{'namer'},
-                                     'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}}
+    modelProducts = {
+        'z500_vort':{
+            'name':'500hPa Height, Vorticity', 'models':{'gfs', 'nam'}, 'scope':{'us'},
+            'times':{0:[18,24,30], 1:[12,18,24,30], 2:[12,18,24,30]}},
+        'temp_adv_fgen_700':{
+            'name':'700hPa TAdv, Fronto', 'models':{'gfs', 'nam'}, 'scope':{'us'},
+            'times':{0:[18,24,30], 1:[12,18,24,30], 2:[12,18,24,30]}},
+        'ref_frzn':{
+            'name':'dBZ, MSLP', 'models':{'gfs', 'nam'}, 'scope':{'us','neus', 'ncus'},
+            'times':{0:[18,24,30], 1:[12,18,24,30], 2:[12,18,24,30], 3:[12, 24], 4:[12, 24], 5:[12, 24]}},
+        'ref3km_frzn':{
+            'name':'dBZ, MSLP', 'models':{'nam3km', 'hrrr'}, 'scope':{'neus', 'ncus'},
+            'times':{0:[21,22,23,24,25,26,27,28,29,30],
+                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
+        'refl_10cm':{
+            'name':'dBZ, MSLP', 'models':{'wrfgfs', 'wrfnam'}, 'scope':{'eus'},
+            'times':{0:[21,22,23,24,25,26,27,28,29,30],
+                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
+        'dbz1km': {
+            'name': 'dBZ, MSLP', 'models':{'wrfuiuc'}, 'scope':{'mwus'},
+            'times':{0:[18,19,20,21,22,23,24,25,26,27,28,29,30],
+                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
+        '700hw': {
+            'name': '700hPa Height, Vert. Vel.', 'models':{'wrfuiuc'}, 'scope':{'mwus'},
+            'times':{0:[18,19,20,21,22,23,24,25,26,27,28,29,30],
+                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
+        '500hv': {
+            'name': '500hPa Height, Vort.', 'models':{'wrfuiuc'}, 'scope':{'mwus'},
+            'times':{0:[18,19,20,21,22,23,24,25,26,27,28,29,30],
+                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
+        '925hs': {
+            'name': '925hPa Height, Wind', 'models':{'wrfuiuc'}, 'scope':{'mwus'},
+            'times':{0:[18,19,20,21,22,23,24,25,26,27,28,29,30],
+                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
+        'z500_spag':{
+            'name': '500hPa Height', 'models':{'gefs', 'naefs'}, 'scope':{'namer'},
+            'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}},
+        'enslows':{
+            'name': 'Pressure Centers', 'models':{'gefs', 'cmc','ecmwf'},
+            'scope':{'namer'}, 'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}},
+        'qpf_prob_025':{
+            'name': 'Prob. 6-h QPF > 0.25', 'models':{'gefs'}, 'scope':{'namer'},
+            'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}}
                     }
 elif presentationType=='evening':
     modelProducts = {'z500_vort':{'name':'500hPa Height, Vorticity', 'models':{'gfs', 'nam'}, 'scope':{'us'},
@@ -1192,8 +1240,8 @@ elif presentationType=='evening':
                                           'times':{0:[24,30], 1:[12,18,24,30], 2:[12,18,24,30]}},
                      'ref_frzn':{'name':'dBZ, MSLP', 'models':{'gfs', 'nam'}, 'scope':{'us', 'neus', 'ncus'},
                                  'times':{0:[24,30], 1:[12,18,24,30], 2:[12,18,24,30], 3:[12, 24], 4:[12, 24], 5:[12, 24]}},
-                     'ref3km_frzn':{'name':'dBZ, MSLP', 'models':{'nam3km', 'hrrr'}, 'scope':{'neus', 'ncus'},\
-                                    'times':{0:[24,25,26,27,28,29,30],\
+                     'ref3km_frzn':{'name':'dBZ, MSLP', 'models':{'nam3km', 'hrrr'}, 'scope':{'neus', 'ncus'},
+                                    'times':{0:[24,25,26,27,28,29,30],
                                              1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
                      'refl_10cm':{'name':'dBZ, MSLP', 'models':{'wrfgfs', 'wrfnam'}, 'scope':{'eus'},
                                   'times':{0:[24,25,26,27,28,29,30],
@@ -1254,97 +1302,118 @@ elif presentationType=='evening':
 # Variable follows the pattern 'Product name': (remote_path [URL], local_path [filename only], variable string)
 # First gather the observational plots
 
-[wal_url, wal_datestr] = get_latest_radar('DOX') # Get timestamp info for the most recent radar image
-[atl_url, atl_datestr] = get_latest_radar('FFC') # Get timestamp info for the most recent radar image
+# Get URLs for the most recent radar image
+[rad_wal_url, wal_datestr] = get_latest_radar('DOX', nearest1hr)
+[rad_pob_url, pob_datestr] = get_latest_radar('LTX', nearest1hr)
 
+# Get URLs for the most recent meteograms
 mgram_wal_url = get_meteogram_url(nearest1hr, location='KWAL')
-mgram_ffc_url = get_meteogram_url(nearest1hr, location='KFFC')
+mgram_pob_url = get_meteogram_url(nearest1hr, location='KPOB')
 
-img_paths = {'z500_minus12_uair_us':
-             (['https://climate.cod.edu/data/upper/US/contour/USvort.'+ past12hr_fullStr[0:8] + '.' +
-               past12hr_fullStr[8:10] + '.gif'][0], 'vort500_past_conus.gif', '500-mb Heights, Vorticity',
-              past12hr_shortStr, past12hr_locStr, past12hr_delta),
+# Query the skew-T soundings
+query_skewt(72402, current12hr_fullStr) # WAL (Wallops Is., VA)
+query_skewt(72317, current12hr_fullStr) # GSO (Greensboro, NC)
+
+img_paths = {
+    'z500_minus12_uair_us':(
+        ('https://climate.cod.edu/data/upper/US/contour/USvort.'
+         + past12hr_fullStr[0:8] + '.' + past12hr_fullStr[8:10] + '.gif'),
+        'vort500_past_conus.gif', '500-mb Heights, Vorticity',
+        past12hr_shortStr, past12hr_locStr, past12hr_delta),
 #              'z500_minus12_uair_us':
 #              ('/home/disk/funnel/impacts/archive/ops/upper_air/{}/ops.upper_air.{}.500mb.gif'.format(
 #                  past12hr_fullStr[0:8], past12hr_fullStr),
 #               '/home/disk/funnel/impacts/archive/ops/upper_air/{}/ops.upper_air.{}.500mb.gif'.format(
 #                   past12hr_fullStr[0:8], past12hr_fullStr), '500-mb Heights',
 #               past12hr_shortStr, past12hr_locStr, past12hr_delta),
-             'z500_current_uair_us':
-             (['https://climate.cod.edu/data/upper/US/contour/USdeltaz.' + current12hr_fullStr[0:8] + '.' +
-               current12hr_fullStr[8:10] + '.gif'][0], 'z500_conus.gif', '500-mb Heights + 12-hr deltaZ',
-              current12hr_shortStr, current12hr_locStr, current12hr_delta),
+    'z500_current_uair_us': (
+        ('https://climate.cod.edu/data/upper/US/contour/USvort.'
+         + current12hr_fullStr[0:8] + '.' + current12hr_fullStr[8:10] + '.gif'),
+        'z500_conus.gif', '500-mb Heights + 12-hr deltaZ', current12hr_shortStr,
+        current12hr_locStr, current12hr_delta),
 #              'z500_current_uair_us':
 #              ('/home/disk/funnel/impacts/archive/ops/upper_air/{}/ops.upper_air.{}.500mb.gif'.format(
 #                  current12hr_fullStr[0:8], current12hr_fullStr),
 #               '/home/disk/funnel/impacts/archive/ops/upper_air/{}/ops.upper_air.{}.500mb.gif'.format(
 #                   current12hr_fullStr[0:8], current12hr_fullStr), '500-mb Heights',
 #               current12hr_shortStr, current12hr_locStr, current12hr_delta),
-             'anl_minus12_surf_atl': 
-             ('https://www.wpc.ncep.noaa.gov/sfc/usfntsfc{}wbg.gif'.format(past12hr_fullStr[8:10]),
-              'surfanl_past_conus.gif', 'Surface Analysis', past12hr_shortStr, past12hr_locStr, past12hr_delta),
-             'anl_current_surf_atl':
-             ('https://www.wpc.ncep.noaa.gov/sfc/usfntsfc00wbg.gif'.format(current12hr_fullStr[8:10]),
-              'surfanl_current_conus.gif', 'Surface Analysis', current12hr_shortStr, current12hr_locStr, current12hr_delta),
-             'sat_minus12_conus':
-             ('https://atmos.uw.edu/images/sat_east_impacts/{}10.color.jpg'.format(past12hr_fullStr[:10]),
-              'sat_past_eastUS.gif', 'Satellite VIS/IR', past12hr_shortStr, past12hr_locStr, past12hr_delta),
-             'sat_current_conus':
-             ('https://atmos.uw.edu/images/sat_east_impacts/{}10.color.jpg'.format(nearest1hr_fullStr[:10]),
-              'sat_current_eastUS.gif', 'Satellite VIS/IR', current12hr_shortStr, current12hr_locStr, current12hr_delta),
-             'rad_minus12_conus': (['http://weather.rap.ucar.edu/radar/nids/images/N0R/KUSA/' + past12hr_fullStr[0:8] +
-                                    '_' + past12hr_fullStr[8:] + '00BIG.png'][0], 'radar_past_conus.gif', 'CONUS Radar',
-                                   past12hr_shortStr, past12hr_locStr, past12hr_delta),
-             'rad_current_us': (['http://weather.rap.ucar.edu/radar/nids/images/N0R/KUSA/' + current_fullStr[0:8] +
-                                 '_' + current_fullStr[8:10] + '0000BIG.png'][0], 'radar_conus.gif', 'CONUS Radar',
-                                current_shortStr, current_locStr, current_delta),
-             #'rad_minus12_conus':
-             #('https://www2.mmm.ucar.edu/imagearchive1/RadarComposites/national/{}/national_{}.gif'.format(
-                 #past12hr_fullStr[0:8], past12hr_fullStr), 'radar_past_conus.gif', 'CONUS Radar',
-              #past12hr_shortStr, past12hr_locStr, past12hr_delta),
-             #'rad_current_us': ('https://radar.weather.gov/ridge/Conus/RadarImg/latest_Small.gif', 'radar_conus.gif',
-                                #'CONUS Radar', current_shortStr, current_locStr, current_delta),
-             'rad_current_wal': ('{}{}_BREF1_color.png'.format(wal_url, wal_datestr), 'radar_wal.png', 'Dover Radar',
-                                 current_shortStr, current_locStr, current_delta),
-             'rad_current_atl': ('{}{}_BREF1_color.png'.format(atl_url, atl_datestr), 'radar_atl.png', 'Atlanta Radar',
-                                 current_shortStr, current_locStr, current_delta),
-            'mgram_wal': (mgram_wal_url, 'wal_meteogram.png', 'Wallops Meteogram', nearest1hr_shortStr, nearest1hr_locStr, nearest1hr_delta),
-            'mgram_ffc': (mgram_ffc_url, 'ffc_meteogram.png', 'Dobbins Meteogram', nearest1hr_shortStr, nearest1hr_locStr, nearest1hr_delta),
-             'skewt_current_wal':
-             ('/home/disk/funnel/impacts/archive/ops/skewt/{}/ops.skewt.{}.WAL.png'.format(
-                 current12hr_fullStr[0:8], current12hr_fullStr),
-              '/home/disk/funnel/impacts/archive/ops/skewt/{}/ops.skewt.{}.WAL.png'.format(
-                  current12hr_fullStr[0:8], current12hr_fullStr), 'Wallops Sounding',
-              current12hr_shortStr, current12hr_locStr, current12hr_delta),
-             'skewt_current_atl':
-             ('/home/disk/funnel/impacts/archive/ops/skewt/{}/ops.skewt.{}.ATL.png'.format(
-                 current12hr_fullStr[0:8], current12hr_fullStr),
-              '/home/disk/funnel/impacts/archive/ops/skewt/{}/ops.skewt.{}.ATL.png'.format(
-                  current12hr_fullStr[0:8], current12hr_fullStr), 'Atlanta Sounding',
-              current12hr_shortStr, current12hr_locStr, current12hr_delta),
-             'haz_current': ('https://maps8.pivotalweather.com/maps/warnings/nwshaz.us_{}.png'.format(region[2:]),\
-                'hazards_{}.png'.format(region[2:]), region_value, current_shortStr, current_locStr, current_delta),
-            'haz_current_se': ('https://maps8.pivotalweather.com/maps/warnings/nwshaz.us_se.png', 'hazards_se.png',\
-                'Southeast', current_shortStr, current_locStr, current_delta),
-             'snprob_day2_us':
-             ('https://www.wpc.ncep.noaa.gov/wwd/day2_psnow_gt_04.gif', 'day2_psnow_gt_04.gif', 'Snow Prob. > 4 in. (Day 2)',\
-              current12hr_shortStr, current12hr_locStr, current12hr_delta),
-             'snprob_day3_us':
-             ('https://www.wpc.ncep.noaa.gov/wwd/day3_psnow_gt_04.gif', 'day3_psnow_gt_04.gif', 'Snow Prob. > 4 in. (Day 3)',\
-              current12hr_shortStr, current12hr_locStr, current12hr_delta),
-             'lowtrks_us':
-             ('https://www.wpc.ncep.noaa.gov/lowtracks/lowtrack_ensembles.gif', 'lowtrack.gif', 'Low Track Forecast',\
-              nearest12hr_shortStr, nearest12hr_locStr, nearest12hr_delta),
-             'anl_d3_surf_conus':
-             ('https://www.wpc.ncep.noaa.gov/medr/9jhwbg_conus.gif', 'surfanl_d3_conus.gif', 'Day 3 Surface Forecast',
-              day3_shortStr, day3_locStr, day3_delta),
-             'anl_d4_surf_conus':
-             ('https://www.wpc.ncep.noaa.gov/medr/9khwbg_conus.gif', 'surfanl_d4_conus.gif', 'Day 4 Surface Forecast',
-              day4_shortStr, day4_locStr, day4_delta),
-             'anl_d5_surf_conus':
-             ('https://www.wpc.ncep.noaa.gov/medr/9lhwbg_conus.gif', 'surfanl_d5_conus.gif', 'Day 5 Surface Forecast',
-              day5_shortStr, day5_locStr, day5_delta)
-            }
+    'anl_minus12_surf_atl': (
+        ('https://www.wpc.ncep.noaa.gov/sfc/usfntsfc' + past12hr_fullStr[8:10] + 'wbg.gif'),
+        'surfanl_past_conus.gif', 'Surface Analysis', past12hr_shortStr,
+        past12hr_locStr, past12hr_delta),
+    'anl_current_surf_atl': (
+        'https://www.wpc.ncep.noaa.gov/sfc/usfntsfc06wbg.gif',
+        'surfanl_current_conus.gif', 'Surface Analysis', current12hr_shortStr,
+        current12hr_locStr, current12hr_delta),
+    'sat_minus12_conus': (
+        ('https://atmos.uw.edu/images/sat_east_impacts/' + past12hr_fullStr[:10] + '10.color.jpg'),
+        'sat_past_eastUS.gif', 'Satellite VIS/IR', past12hr_shortStr,
+        past12hr_locStr, past12hr_delta),
+    'sat_current_conus': (
+        ('https://atmos.uw.edu/images/sat_east_impacts/' + nearest1hr_fullStr[:10] + '10.color.jpg'),
+        'sat_current_eastUS.gif', 'Satellite VIS/IR', current12hr_shortStr,
+        current12hr_locStr, current12hr_delta),
+    'rad_minus12_conus': (
+        ('https://www2.mmm.ucar.edu/imagearchive1/RadarComposites/national/'
+         + past12hr_fullStr[0:8] + '/national_' + past12hr_fullStr + '.gif'),
+        'radar_past_conus.gif', 'CONUS Radar', past12hr_shortStr, past12hr_locStr,
+        past12hr_delta),
+    'rad_current_us': (
+        ('https://www2.mmm.ucar.edu/imagearchive1/RadarComposites/national/'
+         + nearest1hr_fullStr[0:8] + '/national_' + nearest1hr_fullStr + '.gif'),
+        'radar_conus.gif', 'CONUS Radar', current_shortStr, current_locStr, current_delta),
+    'rad_current_wal': (
+        '{}{}_BREF_color.png'.format(rad_wal_url, wal_datestr),
+        'radar_wal.png', 'Dover Radar', current_shortStr, current_locStr, current_delta),
+    'rad_current_pob': (
+        '{}{}_BREF_color.png'.format(rad_pob_url, pob_datestr),
+        'radar_pob.png', 'Wilmington Radar', current_shortStr, current_locStr, current_delta),
+    'mgram_wal': (
+        mgram_wal_url, 'wal_meteogram.png', 'Wallops Meteogram',
+        nearest1hr_shortStr, nearest1hr_locStr, nearest1hr_delta),
+    'mgram_pob': (
+        mgram_pob_url, 'pob_meteogram.png', 'Pope Meteogram',
+        nearest1hr_shortStr, nearest1hr_locStr, nearest1hr_delta),
+    'skewt_current_wal': (
+        ('http://weather.uwyo.edu/upperair/images/' + current12hr_fullStr[:10]
+         + '.72402.skewt.parc.gif'), 'wal_skewt.gif', 'Wallops Sounding',
+        current12hr_shortStr, current12hr_locStr, current12hr_delta),
+    'skewt_current_pob': (
+        ('http://weather.uwyo.edu/upperair/images/' + current12hr_fullStr[:10]
+         + '.72317.skewt.parc.gif'), 'wal_skewt.gif', 'Atlanta Sounding',
+        current12hr_shortStr, current12hr_locStr, current12hr_delta),
+    'haz_current': (
+        'https://maps8.pivotalweather.com/maps/warnings/nwshaz.us_{}.png'.format(region[2:]),
+        'hazards_{}.png'.format(region[2:]), region_value, current_shortStr,
+        current_locStr, current_delta),
+    'haz_current_se': (
+        'https://maps8.pivotalweather.com/maps/warnings/nwshaz.us_se.png',
+        'hazards_se.png', 'Southeast', current_shortStr, current_locStr, current_delta),
+    'snprob_day2_us': (
+        'https://www.wpc.ncep.noaa.gov/wwd/day2_psnow_gt_04.gif',
+        'day2_psnow_gt_04.gif', 'Snow Prob. > 4 in. (Day 2)',
+        current12hr_shortStr, current12hr_locStr, current12hr_delta),
+    'snprob_day3_us': (
+        'https://www.wpc.ncep.noaa.gov/wwd/day3_psnow_gt_04.gif',
+        'day3_psnow_gt_04.gif', 'Snow Prob. > 4 in. (Day 3)',
+        current12hr_shortStr, current12hr_locStr, current12hr_delta),
+    'lowtrks_us': (
+        'https://www.wpc.ncep.noaa.gov/lowtracks/lowtrack_ensembles.gif',
+        'lowtrack.gif', 'Low Track Forecast',
+        nearest12hr_shortStr, nearest12hr_locStr, nearest12hr_delta),
+    'anl_d3_surf_conus': (
+        'https://www.wpc.ncep.noaa.gov/medr/9jhwbg_conus.gif',
+        'surfanl_d3_conus.gif', 'Day 3 Surface Forecast',
+        day3_shortStr, day3_locStr, day3_delta),
+    'anl_d4_surf_conus': (
+        'https://www.wpc.ncep.noaa.gov/medr/9khwbg_conus.gif',
+        'surfanl_d4_conus.gif', 'Day 4 Surface Forecast',
+        day4_shortStr, day4_locStr, day4_delta),
+    'anl_d5_surf_conus': (
+        'https://www.wpc.ncep.noaa.gov/medr/9lhwbg_conus.gif',
+        'surfanl_d5_conus.gif', 'Day 5 Surface Forecast',
+        day5_shortStr, day5_locStr, day5_delta)
+}
 
 # img_paths = {'satIR_m1': ('https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/14/' + dminus1_sat_datestr + '_GOES16-ABI-CONUS-14-2500x1500.jpg', 'DayM1_satIR.jpg', 'Satellite IR'), # GOES IR from previous day
 # 	'satWV_m1': ('https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/08/' + dminus1_sat_datestr + '_GOES16-ABI-CONUS-08-2500x1500.jpg', 'DayM1_satWV.jpg', 'Satellite WV'), # GOES WV from previous day
@@ -1482,7 +1551,7 @@ for product in modelProducts.keys(): # Loop through available products
                                            '.png'][0]
                             product_string = 'HRRR Snowband Probability Product'
                         else: # Traditional plan view forecast graphics
-                            if (model=='gfs') or (model=='nam') or (model=='nam3km'): # Tropical Tidbits graphics
+                            if (model=='gfs') or (model=='nam') or (model=='nam3km') or (model=='hrrr'): # Tropical Tidbits graphics
                                 if model=='gfs':
                                     fhr_string = [str(int(fhr_nearest6hr/6)) if product=='ref_frzn' else
                                                   str(int(fhr_nearest6hr/6)+1)][0]
@@ -1594,31 +1663,44 @@ def build_presentation(nearest6hr, present_time):
 
     # Subtitle is a "placeholder" object
     if presentationType == 'morning':
-        title_slide.placeholders[1].text = "{} UTC\nForecaster Name".format(datetime.strftime(present_time, '%d %b %Y %H%M'))
+        title_slide.placeholders[1].text = "{} UTC\nForecaster Name".format(
+            datetime.strftime(present_time, '%d %b %Y %H%M'))
     elif presentationType == 'evening':
-        title_slide.placeholders[1].text = "{} UTC\nForecaster Name".format(datetime.strftime(present_time, '%d %b %Y %H%M'))
+        title_slide.placeholders[1].text = "{} UTC\nForecaster Name".format(
+            datetime.strftime(present_time, '%d %b %Y %H%M'))
         
     ### START OF THE BRIEFING POWERPOINT TEMPLATE
     prs = full_summary(prs, 'Briefing Headlines', -1)
     if show_weather=='True':
         # Day -1 slides
         print('\n  Making Day -1 slides')
-        prs = bumper_slide(prs, 'Past {} Hours'.format(str(-1*past12hr_delta)), -1, past12hr, present_time)
-        prs = full_summary(prs, 'Summary of Past {} Hours'.format(str(-1*past12hr_delta)), -1) # TODO: Cut this?
-        prs = four_panel_image(prs, ['rad_minus12_conus', 'sat_minus12_conus',
-                                     'z500_minus12_uair_us', 'anl_minus12_surf_atl'], -1, link=True)
+        prs = bumper_slide(
+            prs, 'Past {} Hours'.format(str(-1*past12hr_delta)), -1, past12hr, present_time)
+        prs = full_summary(
+            prs, 'Summary of Past {} Hours'.format(str(-1*past12hr_delta)), -1) # TODO: Cut this?
+        prs = four_panel_image(
+            prs, ['rad_minus12_conus', 'sat_minus12_conus',
+                  'z500_minus12_uair_us', 'anl_minus12_surf_atl'], -1, link=True)
 
         # Current weather slides
         print('\n  Making Current Weather slides')
-        prs = four_panel_image(prs, ['rad_current_us', 'sat_current_conus',
-                                     'z500_current_uair_us', 'anl_current_surf_atl'], 0, link=True)
+        prs = four_panel_image(
+            prs, ['rad_current_us', 'sat_current_conus',
+                  'z500_current_uair_us', 'anl_current_surf_atl'], 0, link=True)
         # prs = full_slide_image(prs, 'haz_current', 0, datetime.utcnow(), width=8, height=6.9)
-        prs = two_panel_image(prs, ['haz_current', 'haz_current_se'], 0, [datetime.utcnow(), datetime.utcnow()],\
-            lowertext=[img_paths['haz_current'][0], img_paths['haz_current_se'][0]], title='Current Hazards')
-        prs = two_panel_image(prs, ['rad_current_wal', 'skewt_current_wal'], 0, [datetime.utcnow(), datetime.utcnow()], title='Wallops Conditions & METAR')
-        prs = two_panel_image(prs, ['rad_current_atl', 'skewt_current_atl'], 0, [datetime.utcnow(), datetime.utcnow()], title='Dobbins Conditions & METAR')
-        prs = two_panel_image(prs, ['mgram_wal', 'mgram_ffc'], 0, [datetime.utcnow(), datetime.utcnow()],\
-            lowertext=['https://aviationweather.gov/taf/data?ids=KMGE,KWAL,KSBY&format=decoded&metars=on&layout=on', ''], title='KWAL & KMGE Forecast & TAF')
+        prs = two_panel_image(
+            prs, ['haz_current', 'haz_current_se'], 0,
+            [datetime.utcnow(), datetime.utcnow()],
+            lowertext=[img_paths['haz_current'][0], img_paths['haz_current_se'][0]],
+            title='Current Hazards')
+        prs = two_panel_image(
+            prs, ['rad_current_wal', 'skewt_current_wal'], 0,
+            [datetime.utcnow(), datetime.utcnow()], title='Wallops Conditions & METAR')
+        prs = two_panel_image(
+            prs, ['rad_current_pob', 'skewt_current_pob'], 0,
+            [datetime.utcnow(), datetime.utcnow()], title='Pope Conditions & METAR')
+        prs = two_panel_image(prs, ['mgram_wal', 'mgram_pob'], 0, [datetime.utcnow(), datetime.utcnow()],\
+            lowertext=['https://aviationweather.gov/taf/data?ids=KMGE,KWAL,KSBY&format=decoded&metars=on&layout=on', ''], title='KWAL & KPOB Forecast & TAF')
 
     if show_shortTerm=='True':
         prs = bumper_slide(prs, 'Synoptic Forecast', [0, 1, 2], datetime(
@@ -1681,14 +1763,10 @@ def build_presentation(nearest6hr, present_time):
         for hour in hourList:
             if (region=='usne') and ('wrfgfs' in modelList) and ('wrfnam' in modelList) and ('nam3km' in modelList):
                 product1 = 'refl_10cm_D0H{}_wrfgfs_eus'.format(str(hour).zfill(2))
-                # product2 = '700_dBZfronto_D0H{}_wrfgfs_eus'.format(str(hour).zfill(2))
                 product2 = 'ref_frzn_D0H{}_gfs_neus'.format(str(int(6*np.floor(hour/6.))).zfill(2))
-                # product3 = 'xsect_MPV_dthetaEdz_fgen_D0H{}_wrfgfs_xsect'.format(str(hour).zfill(2))
                 product3 = 'ref3km_frzn_D0H{}_hrrr_ncus'.format(str(hour).zfill(2))
                 product4 = 'refl_10cm_D0H{}_wrfnam_eus'.format(str(hour).zfill(2))
-                # product5 = '700_dBZfronto_D0H{}_wrfnam_eus'.format(str(hour).zfill(2))
                 product5 = 'ref3km_frzn_D0H{}_nam3km_neus'.format(str(hour).zfill(2))
-                # product6 = 'xsect_MPV_dthetaEdz_fgen_D0H{}_wrfnam_xsect'.format(str(hour).zfill(2))
                 product6 = 'ref3km_frzn_D0H{}_hrrr_neus'.format(str(hour).zfill(2))
                 prs = six_panel_image(prs, [product1, product2, product3, product4, product5, product6], 0)
             elif (region=='usmw') and ('nam3km' in modelList):
