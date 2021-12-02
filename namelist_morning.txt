@@ -9,11 +9,11 @@
 # MUST FOLLOW THE BELOW FORMAT --
 # VARIABLE = VALUE
 #
-downloadPath = .			# This sets the directory where graphics will be downloaded
+downloadPath = /home/disk/meso-home/jfinlon/impacts/briefings	# This sets the directory where graphics will be downloaded
 presentationPath = /home/disk/user_www/jfinlon/impacts/briefings
 presentationType = morning		# Select type of briefing to create: morning, evening
-presentationHour = 16			# The 2-digit UTC hour when the briefing will be given
-modelList = gfs,nam,wrfgfs,wrfnam,gefs,cmc		# List of 1+ models to use (comma-separated) among: gfs, nam, hrrr
+presentationHour = 14			# The 2-digit UTC hour when the briefing will be given
+modelList = default		# 'default' or list of 1+ models to use (comma-separated)
 initializeTime = now			# 'now', or time [YYYYMMDDHH] to designate as the start of the Day 0 period
 region = usne				# 'usne', 'usmw'
 crossSection = nw-se			# Orientation of SBU-WRF model cross sections centered on Long Island with options: n-s, nw-se, w-e, sw-ne

@@ -1,0 +1,4 @@
+  File "briefing.py", line 1556
+    if (model=='gfs') or (model=='nam') or (model=='nam3km')
+                                                           ^
+SyntaxError: invalid syntax

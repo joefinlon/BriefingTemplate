@@ -1,0 +1,4 @@
+  File "briefing.py", line 1223
+    modelList = region_dict[region]['models'] if 'default' in modelList
+                                                                      ^
+SyntaxError: invalid syntax

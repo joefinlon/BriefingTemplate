@@ -6,6 +6,11 @@ __pycache__/
 # C extensions
 *.so
 
+# Log files
+briefing_template.txt
+briefing_template_ne.txt
+briefing_template_mw.txt
+
 # Distribution / packaging
 .Python
 build/
