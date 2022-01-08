@@ -175,31 +175,33 @@ def get_meteogram_url(nearest1hr, location='KWAL'):
 
     return meteogram_url
     
-def get_gpm_overpasses(nearest1hr, region='east'):
+def get_gpm_overpasses(present_time):
     '''
     Gets the first six GPM overpasses from the briefing time in the IMPACTS domain (east or west)
     region: 'east' or 'west'
     '''
-    gpm_dir = '/home/disk/funnel/impacts/archive/ops/gpm'
-    if os.path.isdir(gpm_dir): # only run if this path can be found
-        currDate_string = datetime.strftime(nearest1hr, '%Y%m%d')
-        currDate_int = int(currDate_string) # will use this to incriment dates by 1
-        dates = [str(currDate_int), str(currDate_int+1), str(currDate_int+2)]
-        files = []
-        for date in dates:
-            files.append(glob.glob(gpm_dir + '/' + date + '/ops.gps.' + date + '*.overpass_' + region + '.png'))
-        files_flattened = [val for sublist in files for val in sublist]
-
-        for filenum, file in enumerate(files_flattened[:6]): # loop through first 6 files to construct overpass dict
-            product_name = 'overpass' + str(filenum + 1)
-            remote_file = file
-            local_file = remote_file
-            timestamp = file.split('.')[2] # get timestamp from filename
-            gpm_dt = datetime.strptime(timestamp[:10], '%Y%m%d%H')
-            gpm_fullStr, gpm_shortStr, gpm_locStr, gpm_delta = dt2string(gpm_dt, present_time)
-            product_string = '{} Overpass'.format(gpm_shortStr)
-            img_paths[product_name] = (remote_file, local_file, product_string,
-                                       fcst_shortStr, fcst_locStr, fcst_delta)
+    gpm_base_url = 'https://gpm-gv.gsfc.nasa.gov/Tier1/Files_07day/NPOL/'
+    gpm_data = pd.read_csv(
+        gpm_base_url + 'NPOL_07day_latest.txt', sep=',', skiprows=1, usecols=[1],
+        header=None)
+    gpm_date_list = [
+        datetime.strptime(gpm_data.loc[i][1], '%Y-%m-%d %H:%M:%S') for i in range(len(gpm_data))]
+    
+    filenum = 0
+    for gpm_date in gpm_date_list:
+        if (gpm_date > present_time) and (filenum<6):
+            filenum += 1
+            product_name = 'overpass' + str(filenum)
+            remote_file = (
+                gpm_base_url + 'IMAGE_GPM_7DAY_USANPOL_'
+                + datetime.strftime(gpm_date, '%Y-%m-%d_%H-%M-%S') + '.png')
+            local_file = product_name + '.png'
+            gpm_fullStr, gpm_shortStr, gpm_locStr, gpm_delta = dt2string(
+                gpm_date, present_time)
+            product_string = gpm_shortStr + ' Overpass'
+            img_paths[product_name] = (
+                remote_file, local_file, product_string,
+                gpm_shortStr, gpm_locStr, gpm_delta)
 
 # def get_latest_image(product, useTime=None, resize=False):
 # 	"""
@@ -1559,7 +1561,7 @@ for product in modelProducts.keys(): # Loop through available products
                                         fhr_string = [str(int(fhr_nearest6hr)) if product=='ref_frzn' else
                                                       str(int(fhr_nearest6hr)+1)][0]
                                     else:
-                                        fhr_string = [str(int(36+(fhr_nearest6hr-36)/3)) if product=='ref_frzn_hires' else
+                                        fhr_string = [str(int(36+(fhr_nearest6hr-36)/3)) if product=='ref_frzn' else
                                                       str(int(37+(fhr_nearest6hr-36)/3))][0]
                                     remote_file = ['https://tropicaltidbits.com/analysis/models/namconus/' +
                                                    nearest6hr_fullStr[:10] + '/namconus_' +
@@ -1623,11 +1625,17 @@ for product in modelProducts.keys(): # Loop through available products
                                 product_string = (
                                     model.upper() + ' ' + modelProducts[product]['name'])
                             elif model=='href':
+#                                 remote_file = (
+#                                     'https://impacts.atmos.washington.edu/archive/model/href_03km/'
+#                                     + nearest12hr_fullStr[:8] + '/model.HREF_03km.'
+#                                     + nearest12hr_fullStr + '.' + str(fhr_nearest12hr).zfill(3)
+#                                     + '_' + product + '_' + scope + '.jpg') # --OLD--
                                 remote_file = (
-                                    'https://impacts.atmos.washington.edu/archive/model/href_03km/'
-                                    + nearest12hr_fullStr[:8] + '/model.HREF_03km.'
-                                    + nearest12hr_fullStr + '.' + str(fhr_nearest12hr).zfill(3)
-                                    + '_' + product + '_' + scope + '.jpg')
+                                    'http://catalog.eol.ucar.edu/impacts_2022/model/href_03km/'
+                                    + nearest12hr_fullStr[:8] + '/' + nearest12hr_fullStr[8:10]
+                                    + '/model.HREF_03km.' + nearest12hr_fullStr
+                                    + '.' + str(fhr_nearest12hr).zfill(3) + '_'
+                                    + product + '_' + scope + '.jpg')
                                 local_file = product_name + '.jpg'
                                 product_string = (
                                     model.upper() + ' ' + modelProducts[product]['name'])
@@ -1718,12 +1726,10 @@ def build_presentation(nearest6hr, present_time):
 #         prs = bumper_slide(
 #             prs, 'Past {} Hours'.format(str(-1*past12hr_delta)), -1, past12hr, present_time)
         prs = bumper_slide(
-            prs, 'Recent Weather', -1, past12hr, present_time)
+            prs, 'Recent Weather', [-1, 0], past12hr, present_time)
         prs = four_panel_image(
             prs, ['rad_minus12_conus', 'sat_minus12_conus',
                   'z500_minus12_uair_us', 'anl_minus12_surf_atl'], -1, link=True)
-        prs = full_summary(
-            prs, 'Summary of Past {} Hours'.format(str(-1*past12hr_delta)), -1)
 
         # Current weather slides
         print('\n  Making Current Weather slides')
@@ -1743,7 +1749,9 @@ def build_presentation(nearest6hr, present_time):
             prs, ['rad_current_pob', 'skewt_current_pob'], 0,
             [datetime.utcnow(), datetime.utcnow()], title='Pope Conditions & METAR')
         prs = two_panel_image(prs, ['mgram_wal', 'mgram_pob'], 0, [datetime.utcnow(), datetime.utcnow()],\
-            lowertext=['https://aviationweather.gov/taf/data?ids=KMGE,KWAL,KSBY&format=decoded&metars=on&layout=on', ''], title='KWAL & KPOB Forecast & TAF')
+            lowertext=['https://aviationweather.gov/taf/data?ids=KPOB,KWAL,KSBY&format=decoded&metars=on&layout=on', ''], title='KWAL & KPOB Forecast & TAF')
+        prs = full_summary(
+            prs, 'Summary of Past {} Hours'.format(str(-1*past12hr_delta)), [-1, 0])
 
     if show_shortTerm=='True':
         prs = bumper_slide(prs, 'Synoptic Forecast', [0, 1, 2], datetime(
@@ -1781,13 +1789,15 @@ def build_presentation(nearest6hr, present_time):
                 prs = six_panel_image(prs, [product1, product2, product3, product4, product5, product6], day)
 
         # Day 0-2 Summary
-        if region=='usne':
-            get_gpm_overpasses(nearest1hr, region='east')
-        else:
-            get_gpm_overpasses(nearest1hr, region='west')
-        #if 'overpass1' in img_paths.keys(): # at least one GPM overpass was found...make a slide
-            #prs = six_panel_image(prs, ['overpass1', 'overpass2', 'overpass3', 'overpass4', 'overpass5', 'overpass6'],
-                                  #[0, 1, 2], plotTimebar=False)
+        get_gpm_overpasses(present_time)
+        if 'overpass1' in img_paths.keys(): # at least one GPM overpass was found
+            for overpass_num in range(2, 7): # check all 6 overpass instances
+                if ('overpass' + str(overpass_num)) not in img_paths.keys():
+                    img_paths['overpass' + str(overpass_num)] = img_paths[
+                        'overpass' + str(overpass_num - 1)]
+            prs = six_panel_image(
+                prs, ['overpass1', 'overpass2', 'overpass3', 'overpass4',
+                      'overpass5', 'overpass6'], [0, 1, 2], plotTimebar=False)
         prs = model_grid(prs, basedir)
         prs = objectives_slide(prs, 'Day 0-2 Summary', [0, 1, 2])
         
