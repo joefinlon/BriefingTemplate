@@ -165,25 +165,37 @@ def get_meteogram_url(nearest1hr, location='KWAL'):
 
     if location=='KWAL':
         meteogram_url = ['https://forecast.weather.gov/meteograms/Plotter.php?lat=37.9407&lon=-75.4674&wfo=AKQ&zcode=VAZ099&gset=15&gdiff=5&unit=0&tinfo=EY5&ahour='+\
-            str(starthr)+'&pcmd=11001111011000111000000000000000000000000000000000000000000&indu=0!1!1!&hrspan='+str(endhr)+'&pqpfhr=3&psnwhr=3.png'][0]
+            str(starthr)+'&pcmd=11011111111110100000000000000000000000000000000000000000000&indu=0!1!1!&hrspan='+str(endhr)+'&pqpfhr=3&psnwhr=3.png'][0]
     elif location=='KPOB':
         meteogram_url = ['https://forecast.weather.gov/meteograms/Plotter.php?lat=35.1724&lon=-79.0109&wfo=RAH&zcode=NCZ088&gset=15&gdiff=5&unit=0&tinfo=EY5&ahour='+\
-            str(starthr)+'&pcmd=11001111011000111000000000000000000000000000000000000000000&indu=0!1!1!&hrspan='+str(endhr)+'&pqpfhr=3&psnwhr=3.png'][0]
+            str(starthr)+'&pcmd=11011111111110100000000000000000000000000000000000000000000&indu=0!1!1!&hrspan='+str(endhr)+'&pqpfhr=3&psnwhr=3.png'][0]
     else:
         print('   Location not supported for meteogram.')
         return None
 
     return meteogram_url
     
-def get_gpm_overpasses(present_time):
+def get_gpm_overpasses(present_time, zoom=None):
     '''
     Gets the first six GPM overpasses from the briefing time in the IMPACTS domain (east or west)
     region: 'east' or 'west'
     '''
-    gpm_base_url = 'https://gpm-gv.gsfc.nasa.gov/Tier1/Files_07day/NPOL/'
-    gpm_data = pd.read_csv(
-        gpm_base_url + 'NPOL_07day_latest.txt', sep=',', skiprows=1, usecols=[1],
-        header=None)
+    if zoom is None:
+        gpm_base_url = 'https://gpm-gv.gsfc.nasa.gov/Tier1/Files_07day/NPOL/'
+        gpm_data = pd.read_csv(
+            gpm_base_url + 'NPOL_07day_latest.txt', sep=',', skiprows=1,
+            usecols=[1], header=None)
+    elif zoom=='east':
+        gpm_base_url = 'https://gpm-gv.gsfc.nasa.gov/Tier1/Files_07day/IMPACTS-EAST/'
+        gpm_data = pd.read_csv(
+            gpm_base_url + 'IMPACTS-EAST_07day_latest.txt', sep=',', skiprows=1,
+            usecols=[1], header=None)
+    elif zoom=='west':
+        gpm_base_url = 'https://gpm-gv.gsfc.nasa.gov/Tier1/Files_07day/IMPACTS-WEST/'
+        gpm_data = pd.read_csv(
+            gpm_base_url + 'IMPACTS-WEST_07day_latest.txt', sep=',', skiprows=1,
+            usecols=[1], header=None)
+        
     gpm_date_list = [
         datetime.strptime(gpm_data.loc[i][1], '%Y-%m-%d %H:%M:%S') for i in range(len(gpm_data))]
     
@@ -192,9 +204,18 @@ def get_gpm_overpasses(present_time):
         if (gpm_date > present_time) and (filenum<6):
             filenum += 1
             product_name = 'overpass' + str(filenum)
-            remote_file = (
-                gpm_base_url + 'IMAGE_GPM_7DAY_USANPOL_'
-                + datetime.strftime(gpm_date, '%Y-%m-%d_%H-%M-%S') + '.png')
+            if zoom is None:
+                remote_file = (
+                    gpm_base_url + 'IMAGE_GPM_7DAY_USANPOL_'
+                    + datetime.strftime(gpm_date, '%Y-%m-%d_%H-%M-%S') + '.png')
+            elif zoom=='east':
+                remote_file = (
+                    gpm_base_url + 'IMAGE_GPM_7DAY_IMPACTS-EAST_'
+                    + datetime.strftime(gpm_date, '%Y-%m-%d_%H-%M-%S') + '.png')
+            elif zoom=='west':
+                remote_file = (
+                    gpm_base_url + 'IMAGE_GPM_7DAY_IMPACTS-WEST_'
+                    + datetime.strftime(gpm_date, '%Y-%m-%d_%H-%M-%S') + '.png')
             local_file = product_name + '.png'
             gpm_fullStr, gpm_shortStr, gpm_locStr, gpm_delta = dt2string(
                 gpm_date, present_time)
@@ -1280,44 +1301,42 @@ if presentationType=='morning':
             'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}}
                     }
 elif presentationType=='evening':
-    modelProducts = {'z500_vort':{'name':'500hPa Height, Vorticity', 'models':{'gfs', 'nam'}, 'scope':{'us'},
-                                  'times':{0:[24,30], 1:[12,18,24,30], 2:[12,18,24,30]}},
-                     'temp_adv_fgen_700':{'name':'700hPa TAdv, Fronto', 'models':{'gfs', 'nam'}, 'scope':{'us'},
-                                          'times':{0:[24,30], 1:[12,18,24,30], 2:[12,18,24,30]}},
-                     'ref_frzn':{'name':'dBZ, MSLP', 'models':{'gfs', 'nam'}, 'scope':{'us', 'neus', 'ncus'},
-                                 'times':{0:[24,30], 1:[12,18,24,30], 2:[12,18,24,30], 3:[12, 24], 4:[12, 24], 5:[12, 24]}},
-                     'ref3km_frzn':{'name':'dBZ, MSLP', 'models':{'nam3km', 'hrrr'}, 'scope':{'neus', 'ncus'},
-                                    'times':{0:[24,25,26,27,28,29,30],
-                                             1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-                     'refl_10cm':{'name':'dBZ, MSLP', 'models':{'wrfgfs', 'wrfnam'}, 'scope':{'eus'},
-                                  'times':{0:[24,25,26,27,28,29,30],
-                                           1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-                    #  '700_dBZfronto':{'name': '700hPa Fronto + dBZ', 'models':{'wrfgfs', 'wrfnam'},
-                    #                   'scope':{'us', 'eus', 'ne'},
-                    #                   'times':{0:[24,25,26,27,28,29,30],
-                    #                            1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-                    #  'xsect_MPV_dthetaEdz_fgen':{'name': '{} MPV, Fronto'.format(xSection),
-                    #                                'models':{'wrfgfs', 'wrfnam'}, 'scope':{'xsect'},
-                    #                                'times':{0:[24,25,26,27,28,29,30],
-                    #                                         1:[7,8,9,10,11,12,13,14,15,16,
-                    #                                            17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-#                      'temps_700':{'name': '700hPa Temp, Height', 'models':{'wrfgfs', 'wrfnam'}, 'scope':{'eus'},
-#                                   'times':{0:[18,19,20,21,22,23,24,25,26,27,28,29,30],
-#                                            1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-#                      'xsect_dBZfronto':{'name': '{} dBZ, Fronto'.format(xSection), 'models':{'wrfgfs', 'wrfnam'},
-#                                         'scope':{'xsect'},
-#                                         'times':{0:[18,19,20,21,22,23,24,25,26,27,28,29,30],
-#                                                  1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-                     'dbz1km': {'name': 'dBZ, MSLP', 'models':{'wrfuiuc'}, 'scope':{'mwus'},
-                                'times':{0:[24,25,26,27,28,29,30],
-                                         1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-                     'z500_spag':{'name': '500hPa Height', 'models':{'gefs', 'naefs'}, 'scope':{'namer'},
-                                  'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}},
-                     'enslows':{'name': 'Pressure Centers', 'models':{'gefs', 'cmc','ecmwf'}, 'scope':{'namer'},
-                                'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}},
-                     'qpf_prob_025':{'name': 'Prob. 6-h QPF > 0.25', 'models':{'gefs'}, 'scope':{'namer'},
-                                     'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}}
-                    }
+    modelProducts = {
+        'z500_vort':{
+            'name':'500hPa Height, Vorticity', 'models':{'gfs', 'nam'}, 'scope':{'us'},
+            'times':{0:[24,30], 1:[12,18,24,30], 2:[12,18,24,30]}},
+        'temp_adv_fgen_700':{
+            'name':'700hPa TAdv, Fronto', 'models':{'gfs', 'nam'}, 'scope':{'us'},
+            'times':{0:[24,30], 1:[12,18,24,30], 2:[12,18,24,30]}},
+        'ref_frzn':{
+            'name':'dBZ, MSLP', 'models':{'gfs', 'nam'}, 'scope':{'us', 'neus', 'ncus'},
+            'times':{0:[24,30], 1:[12,18,24,30], 2:[12,18,24,30], 3:[12, 24], 4:[12, 24], 5:[12, 24]}},
+        'ref3km_frzn':{
+            'name':'dBZ, MSLP', 'models':{'nam3km', 'hrrr', 'fv3'}, 'scope':{'neus', 'ncus'},
+            'times':{0:[24,25,26,27,28,29,30],
+                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
+        'refl_10cm':{
+            'name':'dBZ, MSLP', 'models':{'wrfgfs', 'wrfnam'}, 'scope':{'eus'},
+            'times':{0:[24,25,26,27,28,29,30],
+                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
+        'dbz1km': {
+            'name': 'dBZ, MSLP', 'models':{'wrfuiuc'}, 'scope':{'mwus'},
+            'times':{0:[24,25,26,27,28,29,30],
+                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
+        'qpf_001h_mean_ptype': {
+            'name': 'Mean 1-h QPF, ptype', 'models':{'href'}, 'scope':{'ne', 'mw'},
+            'times':{0:[24,25,26,27,28,29,30],
+                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
+        'z500_spag':{
+            'name': '500hPa Height', 'models':{'gefs', 'naefs'}, 'scope':{'namer'},
+            'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}},
+        'enslows':{
+            'name': 'Pressure Centers', 'models':{'gefs', 'cmc','ecmwf'}, 'scope':{'namer'},
+            'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}},
+        'qpf_prob_025':{
+            'name': 'Prob. 6-h QPF > 0.25', 'models':{'gefs'}, 'scope':{'namer'},
+            'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}}
+    }
 # 	modelProducts = {'uv250':{'name':'250hPa_Wind_Height', 'models':{'gfs', 'nam'}, 'scope':{'conus'}, 'times':{0:[18,30], 1:[18, 30], 2:[18, 30], 3:[18, 42]}},\
 # 		'z500_vort':{'name':'500hPa_Height_Vorticity', 'models':{'gfs', 'nam'}, 'scope':{'conus'}, 'times':{0:[18,30], 1:[18, 30], 2:[18, 30], 3:[18, 42]}},\
 # 		'500hs':{'name':'500hPa_HeightSpaghetti', 'models':{'gfs'}, 'scope':{'namer'}, 'times':{3:[12, 36, 60, 84]}},\
@@ -1484,27 +1503,6 @@ for product in modelProducts.keys(): # Loop through available products
                     fcst_fullStr, fcst_shortStr, fcst_locStr, fcst_delta = dt2string(fcst_dt, present_time)
                     fhr_nearest6hr = int((fcst_dt - nearest6hr).total_seconds() / 3600)
                     fhr_nearest12hr = int((fcst_dt - nearest12hr).total_seconds() / 3600)
-                    
-#                     model_fullStr, model_shortStr, model_localStr, model_elapsed = dt2string(
-#                         present_time.replace(hour=0) + timedelta(days=day, hours=hour), model_init_date)
-#                     wrf_fullStr, wrf_shortStr, wrf_localStr, wrf_elapsed = dt2string(
-#                         present_time.replace(hour=0) + timedelta(days=day, hours=hour), wrf_init_date)
-#                     gefs_fullStr, gefs_shortStr, gefs_localStr, gefs_elapsed = dt2string(
-#                         present_time.replace(hour=0) + timedelta(days=day, hours=hour), present_time)
-#                     naefs_fullStr, naefs_shortStr, naefs_localStr, naefs_elapsed = dt2string(
-#                         present_time.replace(hour=0) + timedelta(days=day, hours=hour), )
-                    
-#                     current_time = model_init_date.replace(hour=0) + timedelta(days=day, hours=hour)
-#                     model_fcstTime = model_init_date.replace(hour=0) + timedelta(days=day, hours=hour)
-#                     model_fcstHour = int((model_fcstTime - model_init_date).total_seconds() / 3600)
-#                     wrf_fcstTime = wrf_init_date.replace(hour=0) + timedelta(days=day, hours=hour)
-#                     wrf_fcstHour = int((wrf_fcstTime - wrf_init_date).total_seconds() / 3600)
-#                     hrrr_fcstTime = hrrr_init_date.replace(hour=0) + timedelta(days=day, hours=hour) # for HRRR snowband product ONLY
-#                     hrrr_fcstHour = int((hrrr_fcstTime - hrrr_init_date).total_seconds() / 3600)
-#                     fcst_utcTime = datetime.strftime(present_time.replace(hour=0) +
-#                                                      timedelta(days=day, hours=hour), '%HZ %m/%d')
-#                     fcst_localTime = datetime.strftime(briefing_utcTime - timedelta(hours=5), '%-I%p %m/%d')
-#                     fcst_elapsedTime = int((fcst_utcTime - present_time).total_seconds() / 3600)
 
                     for scope in sorted(modelProducts[product]['scope']):
                         product_name = '{}_D{}H{}_{}_{}'.format(product, str(day), str(hour).zfill(2), model, scope)
@@ -1642,33 +1640,6 @@ for product in modelProducts.keys(): # Loop through available products
                         img_paths[product_name] = (remote_file, local_file, product_string,
                                                    fcst_shortStr, fcst_locStr, fcst_delta)
                         print(remote_file)
-# 						else: # Plan view spanning CONUS or the specified region
-# 							local_file = 'Day' + str(day) + '_' + product + str(chr(65 + i)) + '_' + model + '_' + scope + '.png'
-# 							product_string = model.upper() + ' ' + modelProducts[product]['name']
-							
-# 							if scope=='conus':
-# 								scope = 'us'
-							
-# 							if model=='nam': # Slightly different URL scheme for NAM
-# 								if model_fcstHour<=36:
-# 									tstep = model_fcstHour + 1
-# 								else:
-# 									tstep = int(38+(model_fcstHour-39)/3)
-									
-# 								if product=='ref_frzn':
-# 									tstep = tstep - 1
-# 								remote_file = 'https://www.tropicaltidbits.com/analysis/models/namconus/' + model_init_string + '/namconus_' + product + '_' + scope + '_' + str(tstep) + '.png'
-# 							elif model=='gfs':
-# 								tstep = int(model_fcstHour / 6 + 1)
-# 								if product=='mslp_pcpn_frzn':
-# 									tstep = tstep - 1
-# 								remote_file = 'https://www.tropicaltidbits.com/analysis/models/' + model + '/' + model_init_string + '/' + model + '_' + product + '_' + scope + '_' + str(tstep) + '.png'
-# 							else: # HRRR
-# 								tstep = hrrr_fcstHour + 1
-# 								if product=='ref_frzn':
-# 									tstep = tstep - 1
-# 								remote_file = 'https://www.tropicaltidbits.com/analysis/models/' + model + '/' + hrrr_init_string + '/' + model + '_' + product + '_' + scope + '_' + str(tstep) + '.png'
-# 						img_paths[product_name] = (remote_file, local_file, product_string)
 ##################################################
 ### BUILD POWERPOINT FILE
 # Different default possibilities for the slide layout
@@ -1748,8 +1719,11 @@ def build_presentation(nearest6hr, present_time):
         prs = two_panel_image(
             prs, ['rad_current_pob', 'skewt_current_pob'], 0,
             [datetime.utcnow(), datetime.utcnow()], title='Pope Conditions & METAR')
-        prs = two_panel_image(prs, ['mgram_wal', 'mgram_pob'], 0, [datetime.utcnow(), datetime.utcnow()],\
-            lowertext=['https://aviationweather.gov/taf/data?ids=KPOB,KWAL,KSBY&format=decoded&metars=on&layout=on', ''], title='KWAL & KPOB Forecast & TAF')
+        if presentationType == 'morning':
+            prs = two_panel_image(
+                prs, ['mgram_wal', 'mgram_pob'], 0, [datetime.utcnow(), datetime.utcnow()],
+                lowertext=['https://aviationweather.gov/taf/data?ids=KPOB,KWAL,KSBY&format=decoded&metars=on&layout=on', ''],
+                title='KWAL & KPOB Forecast & TAF')
         prs = full_summary(
             prs, 'Summary of Past {} Hours'.format(str(-1*past12hr_delta)), [-1, 0])
 
@@ -1789,7 +1763,11 @@ def build_presentation(nearest6hr, present_time):
                 prs = six_panel_image(prs, [product1, product2, product3, product4, product5, product6], day)
 
         # Day 0-2 Summary
-        get_gpm_overpasses(present_time)
+        if region=='usne':
+            get_gpm_overpasses(present_time, zoom='east')
+        elif region=='usne':
+            get_gpm_overpasses(present_time, zoom='west')
+            
         if 'overpass1' in img_paths.keys(): # at least one GPM overpass was found
             for overpass_num in range(2, 7): # check all 6 overpass instances
                 if ('overpass' + str(overpass_num)) not in img_paths.keys():
@@ -1806,13 +1784,18 @@ def build_presentation(nearest6hr, present_time):
         print('\n Making Detailed Day 0 slides')
         if presentationType=='morning':
             hourList = range(21, 31)
+            prs = bumper_slide(
+                prs, 'Detailed Forecast', [0, 1],
+                datetime(utcnow.year, utcnow.month, utcnow.day, hourList[0], 0),
+                datetime(utcnow.year, utcnow.month, utcnow.day, 6, 0) + timedelta(days=2))
         elif presentationType=='evening':
             hourList = range(24, 31)
+            prs = bumper_slide(
+                prs, 'Detailed Forecast', [0, 1],
+                datetime(utcnow.year, utcnow.month, utcnow.day + 1, 0, 0),
+                datetime(utcnow.year, utcnow.month, utcnow.day, 6, 0) + timedelta(days=2))
         # Detailed forecast slides
-        prs = bumper_slide(
-            prs, 'Detailed Forecast', [0, 1],
-            datetime(utcnow.year, utcnow.month, utcnow.day, hourList[0], 0),
-            datetime(utcnow.year, utcnow.month, utcnow.day, 6, 0) + timedelta(days=2))
+        
 
         for hour in hourList:
             if (region=='usne') and ('wrfgfs' in modelList) and ('wrfnam' in modelList) and ('nam3km' in modelList):
