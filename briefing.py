@@ -10,7 +10,7 @@
 #
 ### FOR ISSUES OR ADDITIONAL HELP, CONTACT:
 ###   Joseph Finlon
-###   jfinlon@uw.edu
+###   joseph.a.finlon@nasa.gov
 #
 # REQUIRED FILES: 'namelist.txt'
 # REQUIRED PYTHON PACKAGES: pptx, re, urllib, numpy, pandas
@@ -18,7 +18,7 @@
 ##################################################
 ### IMPORT PYTHON PACKAGES
 from datetime import time as dtime
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import time
 from pptx import Presentation
 from pptx.util import Inches, Pt
@@ -30,6 +30,8 @@ from PIL import Image
 import os, sys, re, glob
 import urllib
 import urllib.request
+from urllib.error import HTTPError
+import requests
 import numpy as np
 import pandas as pd
 ##################################################
@@ -74,7 +76,27 @@ def query_skewt(uaID, current12hr_str):
     print('  Requested skew-T for station ID ' + str(uaID))
     time.sleep(5)
     
+def query_gmao(product, scope, dt_object, fhr):
+    '''
+    Initiate HTTP request so that GMAO site can create the image for saving.
     
+    Parameters
+    ----------
+    urlpath: URL string
+    '''
+    dt_fullstr = datetime.strftime(dt_object, "%Y%m%dT%H%M%S")
+    urlpath = (
+        f'https://fluid.nccs.nasa.gov/missions/chem2d_mission+WHyMSIE//?stream=G5FPFC&field='
+        f'{product}&level=0&fcst={dt_fullstr}&region={scope}&tau={str(fhr)}'
+
+    )
+    try:
+        command = 'wget -O temp "' + urlpath + '"'
+        os.system(command)
+        os.system('rm temp')
+        time.sleep(3)
+    except:
+        print(f'Cannot query URL for GMAO {product}_{scope}_{dt_fullstr}')
 
 def dt_nearestTimes(yr, mn, dy, hr):
     # Gets the datetime corresponding to the nearest 1, 6, and 12 hour time for model initialization, etc.
@@ -100,9 +122,9 @@ def dt_nearestTimes(yr, mn, dy, hr):
         else:
             current12hr = nearest12hr
     elif hr>=16 and hr<22:
-        past12hr = datetime(yr, mn, dy, 12, 0)
+        past12hr = datetime(yr, mn, dy, 0, 0)
         current12hr = past12hr
-        nearest12hr = datetime(yr, mn, dy, 12, 0)
+        nearest12hr = datetime(yr, mn, dy, 6, 0)
         nearest6hr = datetime(yr, mn, dy, 12, 0)
     else:
         past12hr = datetime(yr, mn, dy, 12, 0)
@@ -121,12 +143,16 @@ def dt_nearestTimes(yr, mn, dy, hr):
 def dt2string(dt_object, init_time):
     dt_utc_full = datetime.strftime(dt_object, '%Y%m%d%H%M')
     dt_utc_short = datetime.strftime(dt_object, '%H UTC %m/%d')
-    dt_local = datetime.strftime(dt_object - timedelta(hours=5), '%a %-I%p %m/%d')
+    dt_local = datetime.strftime(dt_object - timedelta(hours=8), '%a %-I%p %m/%d')
     elapsed_time = int((dt_object - init_time).total_seconds() / 3600)
     
     return (dt_utc_full, dt_utc_short, dt_local, elapsed_time)
 
 def get_latest_image(product):
+    headers = {
+        "Referer": "https://www.tropicaltidbits.com",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+    }
     remotefile, localfile, prod_str, utc_str, local_str, elapsed = img_paths[product]
     print(remotefile)
     not_found = False
@@ -141,6 +167,13 @@ def get_latest_image(product):
             
         try:
             urllib.request.urlretrieve(remotefile, localfile)
+        except HTTPError:
+            response = requests.get(remotefile, localfile, headers=headers)
+            if response.status_code == 200: # save the image
+                with open(localfile, 'wb') as f:
+                    f.write(response.content)
+            else:
+                not_found = True
         except AttributeError:
             urllib.urlretrieve(remotefile, localfile)
         except:
@@ -163,24 +196,17 @@ def get_meteogram_url(nearest1hr, location='KWAL'):
     endtime = datetime(nearest1hr.year, nearest1hr.month, nearest1hr.day, 6) + timedelta(days=2)
     endhr = int((endtime-starttime).total_seconds() / 3600.)
 
-    if location=='KWAL':
-        meteogram_url = ['https://forecast.weather.gov/meteograms/Plotter.php?lat=37.9407&lon=-75.4674&wfo=AKQ&zcode=VAZ099&gset=15&gdiff=5&unit=0&tinfo=EY5&ahour='+\
-            str(starthr)+'&pcmd=11011111111110100000000000000000000000000000000000000000000&indu=0!1!1!&hrspan='+str(endhr)+'&pqpfhr=3&psnwhr=3.png'][0]
-    elif location=='KPOB':
-        meteogram_url = ['https://forecast.weather.gov/meteograms/Plotter.php?lat=35.1724&lon=-79.0109&wfo=RAH&zcode=NCZ088&gset=15&gdiff=5&unit=0&tinfo=EY5&ahour='+\
-            str(starthr)+'&pcmd=11011111111110100000000000000000000000000000000000000000000&indu=0!1!1!&hrspan='+str(endhr)+'&pqpfhr=3&psnwhr=3.png'][0]
-    elif location == 'KMGE':
-        meteogram_url = ('https://forecast.weather.gov/meteograms/Plotter.php?'
-                         'lat=33.9144&lon=-84.5142&wfo=FFC&zcode=GAZ032&gset=15&'
-                         f'gdiff=5&unit=0&tinfo=EY5&ahour={str(starthr)}&'
-                         'pcmd=11011111111110100000000000000000000000000000000000000000000&'
-                         f'indu=0!1!1!&hrspan={str(endhr)}&pqpfhr=3&psnwhr=3.png'
+    if location=='KEDW':
+        meteogram_url = (
+            'https://forecast.weather.gov/meteograms/Plotter.php?lat=34.9295&lon=-117.9277&'
+            f'wfo=HNX&zcode=CAZ339&gset=15&gdiff=5&unit=0&tinfo=PY8&ahour={str(starthr)}'
+            '&pcmd=11001110100000001000000000000000000000000000000000000100000'
+            f'&lg=en&indu=0!1!1!0&dd=&bw=&hrspan={str(endhr)}&pqpfhr=6&psnwhr=3.png'
         )
+        return meteogram_url
     else:
         print('   Location not supported for meteogram.')
         return None
-
-    return meteogram_url
     
 def get_gpm_overpasses(present_time, zoom=None):
     '''
@@ -767,14 +793,14 @@ def full_slide_image(prs, product, curday, imgTime, ftime=None, width=None, heig
     if height is not None:
         left_balanced = (10-width)/2.
         try:
-            pic = slide.shapes.add_picture(results[0], left=Inches(left_balanced), top=Inches(0.5),
+            pic = slide.shapes.add_picture(results[0], left=Inches(left_balanced), top=Inches(1.55),
                                            width=Inches(width), height=Inches(height))
         except IOError:
             pic = None
     elif width is not None:
         left_balanced = (10-width)/2.
         try:
-            pic = slide.shapes.add_picture(results[0], left=Inches(left_balanced), top=Inches(0.5), width=Inches(width))
+            pic = slide.shapes.add_picture(results[0], left=Inches(left_balanced), top=Inches(1.55), width=Inches(width))
         except IOError:
             pic = None
     else:
@@ -984,7 +1010,7 @@ def two_panel_image(prs, products, curday, imgTimes, link=False, lowertext=False
 
 # 	return prs
 
-def four_panel_image(prs, products, curday, link=False):
+def four_panel_image(prs, products, curday, link=False, widthval=None, heightval=None):
     images = []
     for panelnum in range(len(products)):
         results = get_latest_image(products[panelnum])
@@ -1000,7 +1026,10 @@ def four_panel_image(prs, products, curday, link=False):
 #     title = slide.shapes.title
 
     lefts = [0, 5, 0, 5]; tops = [0.85, 0.85, 4.2, 4.2];
-    widthval = 4.5 ; heightval = 3.0;
+    if widthval is None:
+        widthval = 4.5
+    if heightval is None:
+        heightval = 3.0
     text_lefts = [0, 5, 0, 5]; text_tops = [3.5,3.5,6.8,6.8];
 #     text_lefts = [2.5,7.5,2.5,7.5]; text_tops = [3.5,3.5,6.8,6.8];
     
@@ -1181,7 +1210,7 @@ else:
 if presentationType=='morning':
     briefingString = 'morning' # for file naming conventions
     present_time = datetime(utcnow.year, utcnow.month, utcnow.day, presentationHour, 0)
-    if utcnow.hour<5 or utcnow.hour>17:
+    if utcnow.hour<8 or utcnow.hour>19:
         print(
             'Are you sure you meant to select the morning briefing period? Changing to the evening period now...')
         presentationType = 'evening'
@@ -1209,6 +1238,12 @@ current_fullStr, current_shortStr, current_locStr, current_delta = dt2string(
     datetime(utcnow.year, utcnow.month, utcnow.day, utcnow.hour, utcnow.minute), present_time)
 
 # Assign Days 3-5 surface forecast times
+day1_fullStr, day1_shortStr, day1_locStr, day1_delta = dt2string(
+    datetime(present_time.year, present_time.month, present_time.day, 12, 0)
+    + timedelta(days=1), present_time)
+day2_fullStr, day2_shortStr, day2_locStr, day2_delta = dt2string(
+    datetime(present_time.year, present_time.month, present_time.day, 12, 0)
+    + timedelta(days=2), present_time)
 day3_fullStr, day3_shortStr, day3_locStr, day3_delta = dt2string(
     datetime(present_time.year, present_time.month, present_time.day, 12, 0)
     + timedelta(days=3), present_time)
@@ -1258,6 +1293,18 @@ region_dict = {
         'radarLoc':'LOT',
         'soundLocs':['APX','DTX','GRB','DVN'],
         'plumeLocs':['APX','DTX','GRB','DVN']
+    },
+    'ussw': {
+        'value':'Southwest',
+        'radString':'centgrtlakes',
+        'metarString':'dtw',
+        'models':[
+            'gfs', 'ecmwf', 'nam', 'wrfuiuc', 'gefs', 'cmc', 'eps',
+            'hrrr', 'fv3', 'nam3km', 'rgem', 'href', 'geos', 'gem'
+        ],
+        'radarLoc':'LOT',
+        'soundLocs':['APX','DTX','GRB','DVN'],
+        'plumeLocs':['APX','DTX','GRB','DVN']
     }
 }
 region_value = region_dict[region]['value']
@@ -1285,43 +1332,64 @@ print('   Using {} as the initialization time for the model runs'.format(nearest
 ### POPULATE MODEL PRODUCT DIRECTORY
 if presentationType=='morning':
     modelProducts = {
-        'z500_vort':{
-            'name':'500hPa Height, Vorticity', 'models':{'gfs', 'nam'}, 'scope':{'us'},
-            'times':{0:[18,24,30], 1:[12,18,24,30], 2:[12,18,24,30]}},
-        'temp_adv_fgen_700':{
-            'name':'700hPa TAdv, Fronto', 'models':{'gfs', 'nam'}, 'scope':{'us'},
-            'times':{0:[18,24,30], 1:[12,18,24,30], 2:[12,18,24,30]}},
-        'ref_frzn':{
-            'name':'dBZ, MSLP', 'models':{'gfs', 'nam'}, 'scope':{'us'},
-            'times':{0:[18,24,30], 1:[12,18,24,30], 2:[12,18,24,30]}},
-        'ref3km_frzn':{
-            'name':'dBZ, MSLP', 'models':{'nam3km', 'hrrr', 'fv3'}, 'scope':{'neus', 'ncus'},
-            'times':{0:[21,22,23,24,25,26,27,28,29,30],
-                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-        'refl_10cm':{
-            'name':'dBZ, MSLP', 'models':{'wrfgfs', 'wrfnam'}, 'scope':{'eus'},
-            'times':{0:[21,22,23,24,25,26,27,28,29,30],
-                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-        'dbz1km': {
-            'name': 'dBZ, MSLP', 'models':{'wrfuiuc'}, 'scope':{'mwus'},
-            'times':{0:[18,19,20,21,22,23,24,25,26,27,28,29,30],
-                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-        'prateptype_cat': {
-            'name':'pRate, MSLP', 'models':{'gfs', 'ecmwf'}, 'scope':{'us_ne', 'us_mw', 'conus'},
-            'times':{0:[21, 24, 27, 30], 1:[9, 12, 15, 18, 21, 24, 27, 30],
-            		 3:[12, 24], 4:[12, 24], 5:[12, 24]}
-            },
-        'qpf_001h_mean_ptype': {
-            'name': 'Mean 1-h QPF, ptype', 'models':{'href'}, 'scope':{'ne', 'mw'},
-            'times':{0:[21,22,23,24,25,26,27,28,29,30],
-                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-        'z500_spag':{
-            'name': '500hPa Height', 'models':{'gefs', 'naefs'}, 'scope':{'namer'},
-            'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}},
-        'enslows':{
-            'name': 'Pressure Centers', 'models':{'gefs','eps'}, 'scope':{'namer'},
-            'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}}
-        }
+        'cfrachigh':{
+            'name':'High Cloud Frac', 'models':{'nam3km'}, 'scope':{'swus'},
+            'times':{
+                0:[18,21,24,27], 1:[12,15,18,21,24,27], 2:[12,15,18,21,24]
+            }
+        },
+        'cfraclow':{
+            'name':'Low Cloud Frac', 'models':{'nam3km'}, 'scope':{'swus'},
+            'times':{
+                0:[18,21,24,27], 1:[12,15,18,21,24,27], 2:[12,15,18,21,24]
+            }
+        },
+        'mslp_uv850':{
+            'name':'850hPa Height, Wind', 'models':{'nam3km'}, 'scope':{'wus'},
+            'times':{
+                0:[18,21,24,27], 1:[12,15,18,21,24,27], 2:[12,15,18,21,24]
+            }
+        },
+        'totaot': {
+            'name': 'Aerosol Optical Thickness', 'models':{'geos'}, 'scope':{'ocean'},
+            'times':{
+                0:[18,21,24,27], 1:[12,15,18,21,24,27], 2:[12,15,18,21,24],
+                3:[12,18,24], 4:[12,18,24], 5:[12]
+            }
+        },
+        'duaot': {
+            'name': 'Dust AOT', 'models':{'geos'}, 'scope':{'ocean'},
+            'times':{
+               0:[18,21,24,27], 1:[12,15,18,21,24,27], 2:[12,15,18,21,24]
+            }
+        },
+        'ocaot': {
+            'name': 'Organic Carbon AOT', 'models':{'geos'}, 'scope':{'ocean'},
+            'times':{
+                0:[18,21,24,27], 1:[12,15,18,21,24,27], 2:[12,15,18,21,24]
+            }
+        },
+        'bcaot': {
+            'name': 'Black Carbon AOT', 'models':{'geos'}, 'scope':{'ocean'},
+            'times':{
+                0:[18,21,24,27], 1:[12,15,18,21,24,27], 2:[12,15,18,21,24]
+            }
+        },
+        'ref3km_frzn': {
+            'name': 'dBZ, MSLP', 'models':{'nam3km'}, 'scope':{'wus'},
+            'times':{
+                0:[18,21,24,27], 1:[12,15,18,21,24,27], 2:[12,15,18,21,24]
+            }
+        },
+        'mslp_pcpn_frzn': {
+            'name': 'Precip Rate', 'models':{'gfs', 'ecmwf'}, 'scope':{'wus'},
+            'times':{3:[12,18,24], 4:[12,18,24], 5:[12]}
+        },
+        'midRH': {
+            'name': '700-300hPa RH', 'models':{'ecmwf'}, 'scope':{'wus'},
+            'times':{3:[12,18,24], 4:[12,18,24], 5:[12]}
+        }    
+    }
 elif presentationType=='evening':
     modelProducts = {
         'z500_vort':{
@@ -1367,107 +1435,49 @@ elif presentationType=='evening':
 # First gather the observational plots
 
 # Get URLs for the most recent radar image
-[rad_wal_url, wal_datestr] = get_latest_radar('DOX', nearest1hr)
-#[rad_pob_url, pob_datestr] = get_latest_radar('LTX', nearest1hr) - 2022 only
-[rad_mge_url, mge_datestr] = get_latest_radar('FFC', nearest1hr)
+[rad_edw_url, edw_datestr] = get_latest_radar('EYX', nearest1hr)
 
 # Get URLs for the most recent meteograms
-mgram_wal_url = get_meteogram_url(nearest1hr, location='KWAL')
-#mgram_pob_url = get_meteogram_url(nearest1hr, location='KPOB') - 2022 only
-mgram_mge_url = get_meteogram_url(nearest1hr, location='KMGE') # 2023
+mgram_edw2_url = (
+    'https://har.gsfc.nasa.gov/storm/WEATHER/ASCII_WH2yMSIE_Airfield_Conditions/'
+    f'KEDW_ER-2_Weather_Analysis_{nearest1hr_fullStr[-4:-2]}UTC.png'
+)
 
 # Query the skew-T soundings
-query_skewt(72402, current12hr_fullStr) # WAL (Wallops Is., VA)
-#query_skewt(72317, current12hr_fullStr) # GSO (Greensboro, NC) - 2022 only
-query_skewt(72215, current12hr_fullStr) # FFC (Peachtree City, GA) - 2023
+#query_skewt(72393, current12hr_fullStr) # VBG (Vandenberg, CA)
 
 img_paths = {
-    'z500_minus12_uair_us':(
-        ('https://climate.cod.edu/data/upper/US/contour/USvort.'
-         + past12hr_fullStr[0:8] + '.' + past12hr_fullStr[8:10] + '.gif'),
-        'vort500_past_conus.gif', '500-mb Heights, Vorticity',
-        past12hr_shortStr, past12hr_locStr, past12hr_delta),
-#              'z500_minus12_uair_us':
-#              ('/home/disk/funnel/impacts/archive/ops/upper_air/{}/ops.upper_air.{}.500mb.gif'.format(
-#                  past12hr_fullStr[0:8], past12hr_fullStr),
-#               '/home/disk/funnel/impacts/archive/ops/upper_air/{}/ops.upper_air.{}.500mb.gif'.format(
-#                   past12hr_fullStr[0:8], past12hr_fullStr), '500-mb Heights',
-#               past12hr_shortStr, past12hr_locStr, past12hr_delta),
-    'z500_current_uair_us': (
-        ('https://climate.cod.edu/data/upper/US/contour/USvort.'
-         + current12hr_fullStr[0:8] + '.' + current12hr_fullStr[8:10] + '.gif'),
-        'z500_conus.gif', '500-mb Heights + 12-hr deltaZ', current12hr_shortStr,
-        current12hr_locStr, current12hr_delta),
-#              'z500_current_uair_us':
-#              ('/home/disk/funnel/impacts/archive/ops/upper_air/{}/ops.upper_air.{}.500mb.gif'.format(
-#                  current12hr_fullStr[0:8], current12hr_fullStr),
-#               '/home/disk/funnel/impacts/archive/ops/upper_air/{}/ops.upper_air.{}.500mb.gif'.format(
-#                   current12hr_fullStr[0:8], current12hr_fullStr), '500-mb Heights',
-#               current12hr_shortStr, current12hr_locStr, current12hr_delta),
-    'anl_minus12_surf_atl': (
-        ('https://www.wpc.ncep.noaa.gov/sfc/usfntsfc' + past12hr_fullStr[8:10] + 'wbg.gif'),
-        'surfanl_past_conus.gif', 'Surface Analysis', past12hr_shortStr,
-        past12hr_locStr, past12hr_delta),
-    'anl_current_surf_atl': (
-        'https://www.wpc.ncep.noaa.gov/sfc/usfntsfc06wbg.gif',
-        'surfanl_current_conus.gif', 'Surface Analysis', current12hr_shortStr,
-        current12hr_locStr, current12hr_delta),
-    'sat_minus12_conus': (
-        ('https://atmos.uw.edu/images/sat_east_impacts/' + past12hr_fullStr[:10] + '10.color.jpg'),
-        'sat_past_eastUS.gif', 'Satellite VIS/IR', past12hr_shortStr,
-        past12hr_locStr, past12hr_delta),
-    'sat_current_conus': (
-        ('https://atmos.uw.edu/images/sat_east_impacts/' + nearest1hr_fullStr[:10] + '10.color.jpg'),
-        'sat_current_eastUS.gif', 'Satellite VIS/IR', current12hr_shortStr,
-        current12hr_locStr, current12hr_delta),
-    'rad_minus12_conus': (
-        ('https://www2.mmm.ucar.edu/imagearchive1/RadarComposites/national/'
-         + past12hr_fullStr[0:8] + '/national_' + past12hr_fullStr + '.gif'),
-        'radar_past_conus.gif', 'CONUS Radar', past12hr_shortStr, past12hr_locStr,
-        past12hr_delta),
-    'rad_current_us': (
-        ('https://www2.mmm.ucar.edu/imagearchive1/RadarComposites/national/'
-         + nearest1hr_fullStr[0:8] + '/national_' + nearest1hr_fullStr + '.gif'),
-        'radar_conus.gif', 'CONUS Radar', current_shortStr, current_locStr, current_delta),
-    'rad_current_wal': (
-        '{}{}_BREF_color.png'.format(rad_wal_url, wal_datestr),
-        'radar_wal.png', 'Dover Radar', current_shortStr, current_locStr, current_delta),
-    'rad_current_mge': (
-        '{}{}_BREF_color.png'.format(rad_mge_url, mge_datestr),
-        'radar_mge.png', 'Atlanta Radar', current_shortStr, current_locStr, current_delta),
-    'mgram_wal': (
-        mgram_wal_url, 'wal_meteogram.png', 'Wallops Meteogram',
-        nearest1hr_shortStr, nearest1hr_locStr, nearest1hr_delta),
-    'mgram_mge': (
-        mgram_mge_url, 'mge_meteogram.png', 'Dobbins Meteogram',
-        nearest1hr_shortStr, nearest1hr_locStr, nearest1hr_delta),
-    'skewt_current_wal': (
+    'rad_current_edw': (
+        '{}{}_BREF_color.png'.format(rad_edw_url, edw_datestr),
+        'radar_edw.png', 'Edwards AFB Radar', current_shortStr, current_locStr, current_delta),
+    'mgram_edw2': (
+        mgram_edw2_url, 'edw2_meteogram.png', 'Edwards AFB Meteogram',
+        nearest1hr_shortStr, nearest1hr_locStr, nearest1hr_delta
+    ),
+    'skewt_current_edw': (
         ('http://weather.uwyo.edu/upperair/images/' + current12hr_fullStr[:10]
-         + '.72402.skewt.parc.gif'), 'wal_skewt.gif', 'Wallops Sounding',
-        current12hr_shortStr, current12hr_locStr, current12hr_delta),
-    'skewt_current_mge': (
-        ('http://weather.uwyo.edu/upperair/images/' + current12hr_fullStr[:10]
-         + '.72215.skewt.parc.gif'), 'mge_skewt.gif', 'Peachtree City Sounding',
-        current12hr_shortStr, current12hr_locStr, current12hr_delta),
+         + '.72393.skewt.parc.gif'), 'edw_skewt.gif', 'Vandenberg AFB Sounding',
+        current12hr_shortStr, current12hr_locStr, current12hr_delta
+    ),
     'haz_current': (
         'https://x-hv1.pivotalweather.com/maps/warnings/nwshaz.us_{}.png'.format(region[2:]),
         'hazards_{}.png'.format(region[2:]), region_value, current_shortStr,
         current_locStr, current_delta),
-    'haz_current_se': (
-        'https://x-hv1.pivotalweather.com/maps/warnings/nwshaz.us_se.png',
-        'hazards_se.png', 'Southeast', current_shortStr, current_locStr, current_delta),
-    'snprob_day2_us': (
-        'https://www.wpc.ncep.noaa.gov/wwd/day2_psnow_gt_04.gif',
-        'day2_psnow_gt_04.gif', 'Snow Prob. > 4 in. (Day 2)',
-        current12hr_shortStr, current12hr_locStr, current12hr_delta),
-    'snprob_day3_us': (
-        'https://www.wpc.ncep.noaa.gov/wwd/day3_psnow_gt_04.gif',
-        'day3_psnow_gt_04.gif', 'Snow Prob. > 4 in. (Day 3)',
-        current12hr_shortStr, current12hr_locStr, current12hr_delta),
-    'lowtrks_us': (
-        'https://www.wpc.ncep.noaa.gov/lowtracks/lowtrack_ensembles.gif',
-        'lowtrack.gif', 'Low Track Forecast',
-        nearest12hr_shortStr, nearest12hr_locStr, nearest12hr_delta),
+    'viirs_current': (
+        'https://realearth.ssec.wisc.edu/api/image?products=G18-ABI-CONUS-BAND10.100,WFIGS-Perimeters.100,'
+        'WFIGS-Current.100&width=830&height=500&client=RealEarth&basemap=bw&labels=line&center=39.926588421909436,'
+        f'-114.38964843750001&zoom=5&time={nearest1hr_fullStr[:4]}-{nearest1hr_fullStr[4:6]}'
+        f'-{nearest1hr_fullStr[6:8]}+{nearest1hr_fullStr[8:10]}:00:00',
+        'viirs.png', 'VIIRS Fires + GOES WV', nearest1hr_shortStr, nearest1hr_locStr, nearest1hr_delta
+    ),
+    'anl_d1_surf_conus': (
+        'https://www.wpc.ncep.noaa.gov/NationalForecastChart/staticmaps/noaad1.png',
+        'surfanl_d1_conus.png', 'Day 1 Surface Forecast',
+        day1_shortStr, day1_locStr, day1_delta),
+    'anl_d2_surf_conus': (
+        'https://www.wpc.ncep.noaa.gov/NationalForecastChart/staticmaps/noaad2.png',
+        'surfanl_d2_conus.png', 'Day 2 Surface Forecast',
+        day2_shortStr, day2_locStr, day2_delta),
     'anl_d3_surf_conus': (
         'https://www.wpc.ncep.noaa.gov/medr/9jhwbg_conus.gif',
         'surfanl_d3_conus.gif', 'Day 3 Surface Forecast',
@@ -1514,6 +1524,7 @@ for product in modelProducts.keys(): # Loop through available products
                     fcst_fullStr, fcst_shortStr, fcst_locStr, fcst_delta = dt2string(fcst_dt, present_time)
                     fhr_nearest6hr = int((fcst_dt - nearest6hr).total_seconds() / 3600)
                     fhr_nearest12hr = int((fcst_dt - nearest12hr).total_seconds() / 3600)
+                    fhr_past12hr = int((fcst_dt - past12hr).total_seconds() / 3600)
 
                     for scope in sorted(modelProducts[product]['scope']):
                         product_name = '{}_D{}H{}_{}_{}'.format(product, str(day), str(hour).zfill(2), model, scope)
@@ -1567,10 +1578,23 @@ for product in modelProducts.keys(): # Loop through available products
                         		)
                         	local_file = f'{product_name}.png'
                         	product_string = f'{model.upper()} {modelProducts[product]["name"]}'
+                        elif ('land' in scope) or ('ocean' in scope): # GMAO/GEOS graphics
+                            remote_file = (
+                                f'https://fluid.nccs.nasa.gov/wxmaps/static//plots/{product}/0/'
+                                f'{scope}/nasa.gmao.WHyMSIE.chem2d.G5FPFC.{product}.0.{scope}.'
+                                f'{past12hr_fullStr[:4]}-{past12hr_fullStr[4:6]}-'
+                                f'{past12hr_fullStr[6:8]}T{past12hr_fullStr[8:10]}:00:00.'
+                                f'PT{str(fhr_past12hr).zfill(3)}H.png'
+                            )
+                            local_file = f'{product_name}.png'
+                            product_string = f'{model.upper()} {modelProducts[product]["name"]}'
+                            
+                            # query GMAO link since graphic not available until queried
+                            query_gmao(product, scope, past12hr, fhr_past12hr)
                         else: # Traditional plan view forecast graphics
-                            if (model=='gfs') or (model=='ecmwf') or (model=='nam') or (model=='nam3km') or (model=='hrrr') or (model=='fv3'): # Tropical Tidbits graphics
+                            if (model=='gfs') or (model=='ecmwf') or (model=='nam') or (model=='nam3km') or (model=='hrrr') or (model=='rgem') or (model=='fv3'): # Tropical Tidbits graphics
                                 if model=='gfs':
-                                    if (product == 'ref_frzn') or (product == 'mslp_pcpn'):
+                                    if (product == 'ref_frzn') or (product == 'mslp_pcpn_frzn'):
                                         fhr_string = str(int(fhr_nearest6hr / 6))
                                     else:
                                         fhr_string = str(int(fhr_nearest6hr / 6) + 1)
@@ -1578,7 +1602,7 @@ for product in modelProducts.keys(): # Loop through available products
                                                    nearest6hr_fullStr[:10] + '/gfs_' +
                                                    product + '_' + scope + '_' + fhr_string + '.png'][0]
                                 elif model=='ecmwf':
-                                    if product == 'mslp_pcpn':
+                                    if product == 'mslp_pcpn_frzn':
                                         fhr_string = str(int(fhr_nearest12hr / 3)) # assumes fhr <= 144
                                     else:
                                         fhr_string = str(int(fhr_nearest12hr / 3) + 1)
@@ -1612,21 +1636,45 @@ for product in modelProducts.keys(): # Loop through available products
                                             + '/fv3-hires_' + product + '_' + scope
                                             + '_' + fhr_string + '.png')
                                 else: # HRRR or NAM 3-km
-                                    fhr_string = [
-                                        str(int(fhr_nearest6hr)) if product=='ref3km_frzn' else
-                                        str(int(fhr_nearest6hr)+1)][0]
-                                    if product=='ref3km_frzn':
-                                        remote_file = (
-                                            'https://tropicaltidbits.com/analysis/models/'
-                                            + model + '/' + nearest6hr_fullStr[:10]
-                                            + '/' + model + '_ref_frzn_' + scope
-                                            + '_' + fhr_string + '.png')
+                                    if model=='hrrr': # try later 12Z run
+                                        hrr_latest_fullstr = (nearest6hr + timedelta(hours=6)).strftime('%Y%m%d%H%M')
+                                        fhr_string = [
+                                            str(int(fhr_nearest6hr)-6) if product=='ref3km_frzn' else
+                                            str(int(fhr_nearest6hr)-5)
+                                        ][0]
+                                        if product=='ref3km_frzn':
+                                            remote_file = (
+                                                'https://tropicaltidbits.com/analysis/models/'
+                                                + model + '/' + hrr_latest_fullstr[:10]
+                                                + '/' + model + '_ref_frzn_' + scope
+                                                + '_' + fhr_string + '.png')
+                                        else:
+                                            remote_file = (
+                                                'https://tropicaltidbits.com/analysis/models/'
+                                                + model + '/' + hrr_latest_fullstr[:10]
+                                                + '/' + model + '_' + product + '_' + scope
+                                                + '_' + fhr_string + '.png')
                                     else:
-                                        remote_file = (
-                                            'https://tropicaltidbits.com/analysis/models/'
-                                            + model + '/' + nearest6hr_fullStr[:10]
-                                            + '/' + model + '_' + product + '_' + scope
-                                            + '_' + fhr_string + '.png')
+                                        if (product == 'ref3km_frzn'):
+                                            fhr_string = str(int(fhr_nearest6hr))
+                                        elif (model == 'nam3km') and (
+                                                ('cfrac' in product) or (product == 'ir')):
+                                            fhr_string = str(int(fhr_nearest6hr))
+                                        else:
+                                            fhr_string = str(int(fhr_nearest6hr) + 1)
+                                            
+                                        if product=='ref3km_frzn':
+                                            remote_file = (
+                                                'https://tropicaltidbits.com/analysis/models/'
+                                                + model + '/' + nearest6hr_fullStr[:10]
+                                                + '/' + model + '_ref_frzn_' + scope
+                                                + '_' + fhr_string + '.png')
+                                        else:
+                                            remote_file = (
+                                                'https://tropicaltidbits.com/analysis/models/'
+                                                + model + '/' + nearest6hr_fullStr[:10]
+                                                + '/' + model + '_' + product + '_' + scope
+                                                + '_' + fhr_string + '.png')
                                 local_file = '{}.png'.format(product_name)
                                 product_string = '{} {}'.format(
                                     model.upper(), modelProducts[product]['name'])
@@ -1728,86 +1776,72 @@ def build_presentation(nearest6hr, present_time):
 #         prs = bumper_slide(
 #             prs, 'Past {} Hours'.format(str(-1*past12hr_delta)), -1, past12hr, present_time)
         prs = bumper_slide(
-            prs, 'Recent Weather', [-1, 0], past12hr, present_time)
-        prs = four_panel_image(
-            prs, ['rad_minus12_conus', 'sat_minus12_conus',
-                  'z500_minus12_uair_us', 'anl_minus12_surf_atl'], -1, link=True)
+            prs, 'Current Weather', [-1, 0], past12hr, present_time)
+        # prs = four_panel_image(
+        #     prs, ['rad_minus12_conus', 'sat_minus12_conus',
+        #           'z500_minus12_uair_us', 'anl_minus12_surf_atl'], -1, link=True)
+        prs = two_panel_image(
+            prs, ['rad_current_edw', 'haz_current'], 0,
+            [datetime.now(timezone.utc), datetime.now(timezone.utc)], title='Regional Conditions'
+        )
 
         # Current weather slides
         print('\n  Making Current Weather slides')
-        prs = four_panel_image(
-            prs, ['rad_current_us', 'sat_current_conus',
-                  'z500_current_uair_us', 'anl_current_surf_atl'], 0, link=True)
+        # prs = four_panel_image(
+        #     prs, ['rad_current_us', 'sat_current_conus',
+        #           'z500_current_uair_us', 'anl_current_surf_atl'], 0, link=True)
         # prs = full_slide_image(prs, 'haz_current', 0, datetime.utcnow(), width=8, height=6.9)
-        prs = two_panel_image(
-            prs, ['haz_current', 'haz_current_se'], 0,
-            [datetime.utcnow(), datetime.utcnow()],
-            lowertext=[img_paths['haz_current'][0], img_paths['haz_current_se'][0]],
-            title='Current Hazards')
-        prs = two_panel_image(
-            prs, ['rad_current_wal', 'skewt_current_wal'], 0,
-            [datetime.utcnow(), datetime.utcnow()], title='Wallops Conditions & METAR')
-        prs = two_panel_image(
-            prs, ['rad_current_mge', 'skewt_current_mge'], 0,
-            [datetime.utcnow(), datetime.utcnow()], title='Dobbins Conditions & METAR')
         if presentationType == 'morning':
-            prs = two_panel_image(
-                prs, ['mgram_wal', 'mgram_mge'], 0, [datetime.utcnow(), datetime.utcnow()],
-                lowertext=['https://aviationweather.gov/taf/data?ids=KMGE,KWAL,KSBY&format=decoded&metars=on&layout=on', ''],
-                title='KWAL & KMGE Forecast & TAF')
-        prs = full_summary(
-            prs, 'Summary of Past {} Hours'.format(str(-1*past12hr_delta)), [-1, 0])
+            prs = full_slide_image(
+                prs, 'mgram_edw2', 0, datetime.now(timezone.utc),
+                width=8, height=5.85, title='Edwards AFB Meteogram'
+            )
+            prs = full_slide_image(
+                prs, 'viirs_current', 0, datetime.now(timezone.utc),
+                width=8.3, height=5, title='Current Fire + Water Vapor Imagery'
+            )
+        # prs = full_summary(
+        #     prs, 'Summary of Past {} Hours'.format(str(-1*past12hr_delta)), [-1, 0])
 
     if show_shortTerm=='True':
         prs = bumper_slide(prs, 'Synoptic Forecast', [0, 1, 2], datetime(
-            utcnow.year, utcnow.month, utcnow.day, 14, 0), datetime(
+            utcnow.year, utcnow.month, utcnow.day, 18, 0), datetime(
             utcnow.year, utcnow.month, utcnow.day, 6, 0)+timedelta(days=3))
-        prs = timeline_slide(prs, [0, 1, 2], presentationType, products=['snprob_day2_us', 'lowtrks_us'])
+        prs = timeline_slide(
+            prs, [0, 1, 2], presentationType, products=['anl_d1_surf_conus', 'anl_d2_surf_conus']
+        )
 
         # Day 0 slides
         print('\n Making Day 0 slides')
-        day = 0
-        if presentationType=='morning':
-            hourList = [18, 24, 30]
-        elif presentationType=='evening':
-            hourList = [24, 30]
-            
-        for hour in hourList:
-            product1 = 'z500_vort_D0H{}_gfs_us'.format(str(hour).zfill(2))
-            product2 = 'temp_adv_fgen_700_D0H{}_gfs_us'.format(str(hour).zfill(2))
-            product3 = 'ref_frzn_D0H{}_gfs_us'.format(str(hour).zfill(2))
-            product4 = 'z500_vort_D0H{}_nam_us'.format(str(hour).zfill(2))
-            product5 = 'temp_adv_fgen_700_D0H{}_nam_us'.format(str(hour).zfill(2))
-            product6 = 'ref_frzn_D0H{}_nam_us'.format(str(hour).zfill(2))
-            prs = six_panel_image(prs, [product1, product2, product3, product4, product5, product6], 0)
+        day = 0            
+        for hour in [18, 21, 24]:
+            product1 = 'cfrachigh_D0H{}_nam3km_swus'.format(str(hour).zfill(2))
+            product2 = 'cfraclow_D0H{}_nam3km_swus'.format(str(hour).zfill(2))
+            product3 = 'ref3km_frzn_D0H{}_nam3km_wus'.format(str(hour).zfill(2))
+            product4 = 'mslp_uv850_D0H{}_nam3km_wus'.format(str(hour).zfill(2))
+            product5 = 'totaot_D0H{}_geos_ocean'.format(str(hour).zfill(2))
+            product6 = 'duaot_D0H{}_geos_ocean'.format(str(hour).zfill(2))
+            product7 = 'ocaot_D0H{}_geos_ocean'.format(str(hour).zfill(2))
+            product8 = 'bcaot_D0H{}_geos_ocean'.format(str(hour).zfill(2))
+            prs = four_panel_image(prs, [product1, product2, product3, product4], 0)
+            prs = four_panel_image(prs, [product5, product6, product7, product8], 0)
 
         # Day 1 and 2 slides
         for day in [1, 2]:
             print('\n Making Day {} slides'.format(str(day)))
-            for hour in [12, 18, 24, 30]:
-                product1 = 'z500_vort_D{}H{}_gfs_us'.format(str(day), str(hour).zfill(2))
-                product2 = 'temp_adv_fgen_700_D{}H{}_gfs_us'.format(str(day), str(hour).zfill(2))
-                product3 = 'ref_frzn_D{}H{}_gfs_us'.format(str(day), str(hour).zfill(2))
-                product4 = 'z500_vort_D{}H{}_nam_us'.format(str(day), str(hour).zfill(2))
-                product5 = 'temp_adv_fgen_700_D{}H{}_nam_us'.format(str(day), str(hour).zfill(2))
-                product6 = 'ref_frzn_D{}H{}_nam_us'.format(str(day), str(hour).zfill(2))
-                prs = six_panel_image(prs, [product1, product2, product3, product4, product5, product6], day)
+            for hour in [12,15,18,21,24]:
+                product1 = 'cfrachigh_D{}H{}_nam3km_swus'.format(str(day), str(hour).zfill(2))
+                product2 = 'cfraclow_D{}H{}_nam3km_swus'.format(str(day), str(hour).zfill(2))
+                product3 = 'ref3km_frzn_D{}H{}_nam3km_wus'.format(str(day), str(hour).zfill(2))
+                product4 = 'mslp_uv850_D{}H{}_nam3km_wus'.format(str(day), str(hour).zfill(2))
+                product5 = 'totaot_D{}H{}_geos_ocean'.format(str(day), str(hour).zfill(2))
+                product6 = 'duaot_D{}H{}_geos_ocean'.format(str(day), str(hour).zfill(2))
+                product7 = 'ocaot_D{}H{}_geos_ocean'.format(str(day), str(hour).zfill(2))
+                product8 = 'bcaot_D{}H{}_geos_ocean'.format(str(day), str(hour).zfill(2))
+                prs = four_panel_image(prs, [product1, product2, product3, product4], day)
+                prs = four_panel_image(prs, [product5, product6, product7, product8], day)
 
         # Day 0-2 Summary
-        if region=='usne':
-            get_gpm_overpasses(present_time, zoom='east')
-        elif region=='usne':
-            get_gpm_overpasses(present_time, zoom='west')
-            
-        if 'overpass1' in img_paths.keys(): # at least one GPM overpass was found
-            for overpass_num in range(2, 7): # check all 6 overpass instances
-                if ('overpass' + str(overpass_num)) not in img_paths.keys():
-                    img_paths['overpass' + str(overpass_num)] = img_paths[
-                        'overpass' + str(overpass_num - 1)]
-            prs = six_panel_image(
-                prs, ['overpass1', 'overpass2', 'overpass3', 'overpass4',
-                      'overpass5', 'overpass6'], [0, 1, 2], plotTimebar=False)
-        prs = model_grid(prs, basedir)
         prs = objectives_slide(prs, 'Day 0-2 Summary', [0, 1, 2])
         
     if show_detailed=='True':
@@ -1911,38 +1945,37 @@ def build_presentation(nearest6hr, present_time):
 
         # Day 3+ slides
         print('\n  Making Day 3+ slides')
-        for day in [3, 4, 5]:
-            for hour in [12, 24]:
-                #product1 = 'z500_spag_D{}H{}_gefs_namer'.format(str(day), str(hour).zfill(2))
-                #product1 = 'mslp_pcpn_D{}H{}_gfs_us'.format(str(day), str(hour).zfill(2))
-                product1 = 'prateptype_cat_D{}H{}_gfs_conus'.format(str(day), str(hour).zfill(2))
-                product2 = 'enslows_D{}H{}_gefs_namer'.format(str(day), str(hour).zfill(2))
-                #product3 = 'mslp_pcpn_D{}H{}_ecmwf_us'.format(str(day), str(hour).zfill(2))
-                product3 = 'prateptype_cat_D{}H{}_ecmwf_conus'.format(str(day), str(hour).zfill(2))
-                product4 = 'enslows_D{}H{}_eps_namer'.format(str(day), str(hour).zfill(2))
-                #product4 = 'enslows_D{}H{}_cmc_namer'.format(str(day), str(hour).zfill(2))
+        for day in [3, 4]:
+            for hour in [12, 18, 24]:
+                product1 = 'mslp_pcpn_frzn_D{}H{}_ecmwf_wus'.format(str(day), str(hour).zfill(2))
+                product2 = 'mslp_pcpn_frzn_D{}H{}_gfs_wus'.format(str(day), str(hour).zfill(2))
+                product3 = 'midRH_D{}H{}_ecmwf_wus'.format(str(day), str(hour).zfill(2))
+                product4 = 'totaot_D{}H{}_geos_ocean'.format(str(day), str(hour).zfill(2))
                 prs = four_panel_image(prs, [product1, product2, product3, product4], 3)
-
-        prs = objectives_slide(prs, 'Snow Plumes', 3)
+        day = 5
+        for hour in [12]:
+            product1 = 'mslp_pcpn_frzn_D{}H{}_ecmwf_wus'.format(str(day), str(hour).zfill(2))
+            product2 = 'mslp_pcpn_frzn_D{}H{}_gfs_wus'.format(str(day), str(hour).zfill(2))
+            product3 = 'midRH_D{}H{}_ecmwf_wus'.format(str(day), str(hour).zfill(2))
+            product4 = 'totaot_D{}H{}_geos_ocean'.format(str(day), str(hour).zfill(2))
+            prs = four_panel_image(prs, [product1, product2, product3, product4], 3)
 
         # Day 3+ Summary
         prs = objectives_slide(prs, 'Day 3+ Summary', day)
 
     # Save the presentation
     if briefingUpdate=='True':
-        if region=='usne':
-            prs.save('{}/report.weather.{}.discussion_new.pptx'.format(
-                presentationPath, datetime.strftime(present_time, '%Y%m%d%H%M')))
-        else:
-            prs.save('{}/report.weather_{}.{}.discussion_new.pptx'.format(
-                presentationPath, region, datetime.strftime(present_time, '%Y%m%d%H%M')))
+        prs.save(
+            '{}/report.weather_{}.{}.discussion_new.pptx'.format(
+                presentationPath, region, datetime.strftime(present_time, '%Y%m%d%H%M')
+            )
+        )
     else:
-        if region=='usne':
-            prs.save('{}/report.weather.{}.discussion.pptx'.format(
-                presentationPath, datetime.strftime(present_time, '%Y%m%d%H%M')))
-        else:
-            prs.save('{}/report.weather_{}.{}.discussion.pptx'.format(
-                presentationPath, region, datetime.strftime(present_time, '%Y%m%d%H%M')))
+        prs.save(
+            '{}/report.weather_{}.{}.discussion.pptx'.format(
+                presentationPath, region, datetime.strftime(present_time, '%Y%m%d%H%M')
+            )
+        )
     
 if __name__ == '__main__':
     build_presentation(nearest6hr, present_time)
