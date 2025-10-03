@@ -1385,9 +1385,13 @@ if presentationType=='morning':
             'name': 'Precip Rate', 'models':{'gfs', 'ecmwf'}, 'scope':{'wus'},
             'times':{3:[12,18,24], 4:[12,18,24], 5:[12]}
         },
+        'ir': {
+            'name': 'Brightness Temp', 'models':{'gfs'}, 'scope':{'wus'},
+            'times':{3:[12,18,24], 4:[12,18,24]}
+        },
         'midRH': {
-            'name': '700-300hPa RH', 'models':{'ecmwf'}, 'scope':{'wus'},
-            'times':{3:[12,18,24], 4:[12,18,24], 5:[12]}
+            'name': '700-300hPa RH', 'models':{'gfs'}, 'scope':{'wus'},
+            'times':{5:[12]}
         }    
     }
 elif presentationType=='evening':
@@ -1829,7 +1833,7 @@ def build_presentation(nearest6hr, present_time):
         # Day 1 and 2 slides
         for day in [1, 2]:
             print('\n Making Day {} slides'.format(str(day)))
-            for hour in [12,15,18,21,24]:
+            for hour in [15,18,21,24]:
                 product1 = 'cfrachigh_D{}H{}_nam3km_swus'.format(str(day), str(hour).zfill(2))
                 product2 = 'cfraclow_D{}H{}_nam3km_swus'.format(str(day), str(hour).zfill(2))
                 product3 = 'ref3km_frzn_D{}H{}_nam3km_wus'.format(str(day), str(hour).zfill(2))
@@ -1947,16 +1951,16 @@ def build_presentation(nearest6hr, present_time):
         print('\n  Making Day 3+ slides')
         for day in [3, 4]:
             for hour in [12, 18, 24]:
-                product1 = 'mslp_pcpn_frzn_D{}H{}_ecmwf_wus'.format(str(day), str(hour).zfill(2))
-                product2 = 'mslp_pcpn_frzn_D{}H{}_gfs_wus'.format(str(day), str(hour).zfill(2))
-                product3 = 'midRH_D{}H{}_ecmwf_wus'.format(str(day), str(hour).zfill(2))
+                product1 = 'mslp_pcpn_frzn_D{}H{}_gfs_wus'.format(str(day), str(hour).zfill(2))
+                product2 = 'mslp_pcpn_frzn_D{}H{}_ecmwf_wus'.format(str(day), str(hour).zfill(2))
+                product3 = 'ir_D{}H{}_gfs_wus'.format(str(day), str(hour).zfill(2))
                 product4 = 'totaot_D{}H{}_geos_ocean'.format(str(day), str(hour).zfill(2))
                 prs = four_panel_image(prs, [product1, product2, product3, product4], 3)
         day = 5
         for hour in [12]:
-            product1 = 'mslp_pcpn_frzn_D{}H{}_ecmwf_wus'.format(str(day), str(hour).zfill(2))
-            product2 = 'mslp_pcpn_frzn_D{}H{}_gfs_wus'.format(str(day), str(hour).zfill(2))
-            product3 = 'midRH_D{}H{}_ecmwf_wus'.format(str(day), str(hour).zfill(2))
+            product1 = 'mslp_pcpn_frzn_D{}H{}_gfs_wus'.format(str(day), str(hour).zfill(2))
+            product2 = 'mslp_pcpn_frzn_D{}H{}_ecmwf_wus'.format(str(day), str(hour).zfill(2))
+            product3 = 'midRH_D{}H{}_gfs_wus'.format(str(day), str(hour).zfill(2))
             product4 = 'totaot_D{}H{}_geos_ocean'.format(str(day), str(hour).zfill(2))
             prs = four_panel_image(prs, [product1, product2, product3, product4], 3)
 
