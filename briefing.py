@@ -20,6 +20,8 @@
 from datetime import time as dtime
 from datetime import datetime, timedelta, timezone
 import time
+import argparse
+import importlib.util
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
@@ -36,6 +38,41 @@ import numpy as np
 import pandas as pd
 ##################################################
 ### AUXILLARY FUNCTIONS
+
+# get user-defined command line arguments
+def get_args():
+    parser = argparse.ArgumentParser(
+        description='User arguments to initialize campaign weather briefing template software.')
+    parser.add_argument('--model-prod-path', type=str, required=True,
+                        help='Path to the external Python file that defines model products.')
+    parser.add_argument('--download-path', type=str, required=True,
+                        help='Path to where graphics will be downloaded.')
+    parser.add_argument('--presentation-path', type=str, required=True,
+                        help='Path to where PowerPoint will be saved')
+    parser.add_argument('--presentation-type', type=str, default='morning',
+                        help='Either morning or evening briefing type.')
+    parser.add_argument('--presentation-hour', type=int, default=13,
+                        help='2-digit UTC hour when the briefing will be given.')
+    parser.add_argument('--utc-offset', type=int, required=True,
+                        help='Number of hours offset west of UTC dateline (positive)')
+    parser.add_argument('--initialize-time', type=str, default='now',
+                        help='Either now or YYYYMMDDHH to designate as the start of the Day 0 period.')
+    parser.add_argument('--region', type=str, default='atne',
+                        help='Region string for which region-specific sites (e.g., radar, soundings) are used.')
+    parser.add_argument('--cross-section', type=str, default='nw-se',
+                        help='Orientation for pre-generated model cross sections (IMPACTS only)')
+    parser.add_argument('--show-weather', type=str, default='True',
+                        help='whether to make slides showing the past and current weather')
+    parser.add_argument('--show-shortterm', type=str, default='True',
+                        help='whether to make slides showing the Day 0-2 forecast')
+    parser.add_argument('--show-longterm', type=str, default='True',
+                        help='whether to make slides showing the Day 3-5 forecast')
+    parser.add_argument('--show-detailed', type=str, default='False',
+                        help='whether to make slides showing the detailed Day 0-1 forecast')
+    parser.add_argument('--briefing-update', type=str, default='False',
+                        help='whether to save the presentation as a new filename')
+    return parser.parse_args()
+    
 # Get timestamp of most recent regional radar image
 def get_latest_radar(radarID, nearest1hr):
     url = (
@@ -140,10 +177,10 @@ def dt_nearestTimes(yr, mn, dy, hr):
     
     return (past12hr, current12hr, nearest1hr, nearest2hr, nearest6hr, nearest12hr)
 
-def dt2string(dt_object, init_time):
+def dt2string(dt_object, init_time, utc_offset):
     dt_utc_full = datetime.strftime(dt_object, '%Y%m%d%H%M')
     dt_utc_short = datetime.strftime(dt_object, '%H UTC %m/%d')
-    dt_local = datetime.strftime(dt_object - timedelta(hours=8), '%a %-I%p %m/%d')
+    dt_local = datetime.strftime(dt_object - timedelta(hours=utc_offset), '%a %-I%p %m/%d')
     elapsed_time = int((dt_object - init_time).total_seconds() / 3600)
     
     return (dt_utc_full, dt_utc_short, dt_local, elapsed_time)
@@ -154,7 +191,10 @@ def get_latest_image(product):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
     }
     remotefile, localfile, prod_str, utc_str, local_str, elapsed = img_paths[product]
+    if isinstance(remotefile, list):
+        remotefile = remotefile[0]
     print(remotefile)
+    
     not_found = False
     if remotefile==localfile: # verify that a non-URL image is on the local server
         if os.path.isfile(remotefile) is False:
@@ -176,7 +216,8 @@ def get_latest_image(product):
                 not_found = True
         except AttributeError:
             urllib.urlretrieve(remotefile, localfile)
-        except:
+        except Exception as e:
+            print(f'  {e}')
             not_found = True
             
     if not_found:
@@ -208,7 +249,7 @@ def get_meteogram_url(nearest1hr, location='KWAL'):
         print('   Location not supported for meteogram.')
         return None
     
-def get_gpm_overpasses(present_time, zoom=None):
+def get_gpm_overpasses(present_time, utc_offset, zoom=None):
     '''
     Gets the first six GPM overpasses from the briefing time in the IMPACTS domain (east or west)
     region: 'east' or 'west'
@@ -251,78 +292,11 @@ def get_gpm_overpasses(present_time, zoom=None):
                     + datetime.strftime(gpm_date, '%Y-%m-%d_%H-%M-%S') + '.png')
             local_file = product_name + '.png'
             gpm_fullStr, gpm_shortStr, gpm_locStr, gpm_delta = dt2string(
-                gpm_date, present_time)
+                gpm_date, present_time, utc_offset)
             product_string = gpm_shortStr + ' Overpass'
             img_paths[product_name] = (
                 remote_file, local_file, product_string,
                 gpm_shortStr, gpm_locStr, gpm_delta)
-
-# def get_latest_image(product, useTime=None, resize=False):
-# 	"""
-# 	Function to get the image from a given product and catalog the time it's valid
-# 	useTime: None or datetime that the image is valid
-# 	resize: True will cut the image width and height in half to reduce file size
-
-# 	Returns a tuple with:
-
-# 	(string that is the full address of the image)
-
-# 	The product name MUST HAVE an entry in the img_paths dictionary,
-# 	otherwise None is returned
-# 	"""
-
-# 	if product not in img_paths.keys():
-# 		print('  Unable to find path to product {}'.format(product))
-# 		return None
-
-# 	if useTime is not None:
-# 		validTime = useTime
-# 	else: # Assign current time for the product
-# 		validTime = datetime.utcnow()
-
-# 	# Parse out the info (path is the remote URL, ext is what the saved image will be named, product string)
-# 	path, ext, prod_str = img_paths[product]
-# 	origpath = path
-# 	not_found = False
-
-# 	if ext is None: # No filename given to save the image
-# 		recent_file = path.split('/')[-1] # Just use the filename on the website
-		
-# 		if os.path.exists(recent_file):
-# 			os.system('rm -f {:s}'.format(recent_file))
-
-# 		try:
-# 			urllib.request.urlretrieve(path, recent_file)
-# 		except AttributeError:
-# 			urllib.urlretrieve(path, recent_file)
-# 		except:
-# 			not_found = True
-# 	else:
-# 		if os.path.exists(ext):
-# 			os.system('rm -f {:s}'.format(ext))
-# 		try:
-# 			urllib.request.urlretrieve(path, ext)
-# 		except AttributeError:
-# 			urllib.urlretrieve(path, ext)
-# 		except:
-# 			not_found = True
-# 		recent_file = ext
-# 	print(path, recent_file)
-
-# 	if not_found:
-# 		print('  WARNING: Did not find {:s} image'.format(product))
-# 		return (None, None)
-# 	else: # Return the path
-# 		if resize is True:
-# 			imObj = Image.open(recent_file)
-# 			imWidth, imHeight = (imObj.width // 2, imObj.height // 2)
-# 			imObj_resized = imObj.resize((imWidth, imHeight))
-# 			imObj_resized.save(recent_file)
-# 		if path == '':
-# 			return (recent_file, validTime)
-# 		else:
-# 			# return ('/'.join((path,recent_file)), validTime)
-# 			return (recent_file, validTime)
 
 def add_timeline(slide, curday):
     # Add the timeline to the top of the slide
@@ -710,7 +684,7 @@ def bumper_slide(prs, title, curday, start_time, end_time):
         slide.placeholders[1].text = "Now through {:%H UTC %d %b %Y}".format(end_time)
 
     # Add timeline
-    dayposs = re.search('Day (\d)', title)
+    dayposs = re.search(r'Day (\d)', title)
     add_timeline(slide, curday)
 
     return prs
@@ -724,7 +698,7 @@ def objectives_slide(prs, title, curday):
     slide.shapes.title.text = title
     
     # Add timeline
-    dayposs = re.search('Day (\d)', title)
+    dayposs = re.search(r'Day (\d)', title)
     add_timeline(slide, curday)
 
     return prs
@@ -734,7 +708,7 @@ def full_summary(prs, title, curday, valid=None):
     slide = prs.slides.add_slide(slide_layout)
     slide.shapes.title.text = title
     # Add timeline
-    dayposs = re.search('Day (\d)', title)
+    dayposs = re.search(r'Day (\d)', title)
 
     if title not in ['Discussion Summary', 'Forecast Timeline', 'Briefing Headlines']:
         add_timeline(slide, curday)
@@ -745,10 +719,6 @@ def full_slide_image(prs, product, curday, imgTime, ftime=None, width=None, heig
     # Take "product" and make a full-slide image with title out of it
     # Grab the latest image
     results = get_latest_image(product)
-#     try:
-#         results = get_latest_image(product, imgTime)
-#     except IOError:
-#         results = [None]
 
     # Get a blank slide layout and add it to the presentation
     if title is not None:
@@ -758,20 +728,6 @@ def full_slide_image(prs, product, curday, imgTime, ftime=None, width=None, heig
     else:
         slide_layout = prs.slide_layouts[layout['Blank Slide']]
         slide = prs.slides.add_slide(slide_layout)
-    
-#     if (width is not None) or (height is not None):
-# #         title.top=Inches(0.5)
-#         title.left = Inches(0)
-#         title.width=Inches(10)
-#     else:
-#         title.top=Inches(3)
-#         title.left = Inches(7.5)
-#         title.width=Inches(2.0)
-    
-#     p = title.text_frame.paragraphs[0]
-#     r = p.add_run()
-#     r.text = img_paths[product][2]
-#     r.font.size=Pt(32)
     
     if link:
         hlink = r.hyperlink
@@ -784,7 +740,7 @@ def full_slide_image(prs, product, curday, imgTime, ftime=None, width=None, heig
 
     if results[0] is None:
          # Didn't find the image.  Create slide anyway and add the timeline.
-        dayposs = re.search('Day (\d)', product)
+        dayposs = re.search(r'Day (\d)', product)
         add_timeline(slide, curday)
         
         return prs
@@ -810,7 +766,7 @@ def full_slide_image(prs, product, curday, imgTime, ftime=None, width=None, heig
             pic = None
     
     # Add timeline
-    dayposs = re.search('Day (\d)', product)
+    dayposs = re.search(r'Day (\d)', product)
     add_timeline(slide, curday)
     
     return prs
@@ -837,11 +793,6 @@ def two_panel_image(prs, products, curday, imgTimes, link=False, lowertext=False
             slide.shapes.title.text = title
         else:
             slide.shapes.title.text = ''
-#         title = slide.shapes.title; title.top = Inches(0.5); title.left = Inches(leftval); title.width=Inches(widthval);
-#         p = title.text_frame.paragraphs[0]
-#         r = p.add_run()
-#         r.text = ''
-#         r.font.size=Pt(40)
         
         txt         =   slide.shapes.add_textbox(Inches(leftval),Inches(1.0),Inches(widthval),Inches(0.5))
         tf          =   txt.text_frame
@@ -875,24 +826,10 @@ def two_panel_image(prs, products, curday, imgTimes, link=False, lowertext=False
             ''' 
 
         results = get_latest_image(product)
-# 		try:
-# 			results = get_latest_image(product)
-# 		except IOError:
-# 			results = [None]
 
         if results[0] is None: # Didn't find the image. Create slide anyway and add the timeline.
             pp += 1
             continue
-#             dayposs = re.search('Day (\d)', product)
-            
-#             if dayposs is None:
-#                 curday = 0
-#             else:
-#                 curday = int(dayposs.groups()[0])
-
-#             add_timeline(slide, curday)
-            
-#             return prs
 
         # Add the image
         try:
@@ -905,125 +842,19 @@ def two_panel_image(prs, products, curday, imgTimes, link=False, lowertext=False
         pp += 1
     
     # Add timeline
-#     dayposs = re.search('Day (\d)', product)
     add_timeline(slide, curday)
 
     return prs
-
-# def four_panel_image(prs, product_name, curday, day_start, imgTimes, link=None, resize=False):
-# 	'''
-# 	Download all four images
-# 	imgTimes are passed in from the 'times' element in the 'products' structure
-# 	'''
-
-# 	images = []
-# 	#print(product_name)
-# 	pdt = product_name.split('_')
-# 	if len(pdt)==5: # For products with an underscore in their name
-# 		pdt[0] = pdt[0] + '_' + pdt[1]
-# 		pdt.remove(pdt[1])
-# 	elif len(pdt)==6: # For products with an underscore in their name
-# 		pdt[0] = pdt[0] + '_' + pdt[1] + '_' + pdt[2]
-# 		pdt.remove(pdt[1]); pdt.remove(pdt[1]);
-# 	elif len(pdt)==7: # For products with an underscore in their name
-# 		pdt[0] = pdt[0] + '_' + pdt[1] + '_' + pdt[2] + '_' + pdt[3]
-# 		pdt.remove(pdt[1]); pdt.remove(pdt[1]); pdt.remove(pdt[1]);
-	
-# 	if len(imgTimes)==2:
-# 		panelList = ['A','B']
-# 		time1 = day_start.replace(hour=0) + timedelta(hours=imgTimes[0])
-# 		time2 = day_start.replace(hour=0) + timedelta(hours=imgTimes[1])
-# 		times_combined = [time1, time2] # To be used in 'panel' loop below
-# 		times = [datetime.strftime(time1, '%H UTC %m/%d'), datetime.strftime(time2, '%H UTC %m/%d')]
-# 	elif len(imgTimes)==3:
-# 		panelList = ['A','B','C']
-# 		time1 = day_start.replace(hour=0) + timedelta(hours=imgTimes[0])
-# 		time2 = day_start.replace(hour=0) + timedelta(hours=imgTimes[1])
-# 		time3 = day_start.replace(hour=0) + timedelta(hours=imgTimes[2])
-# 		times_combined = [time1, time2, time3] # To be used in 'panel' loop below
-# 		times = [datetime.strftime(time1, '%H UTC %m/%d'), datetime.strftime(time2, '%H UTC %m/%d'), datetime.strftime(time3, '%H UTC %m/%d')]
-# 	else: # 4 panels
-# 		panelList = ['A','B','C','D']
-# 		time1 = day_start.replace(hour=0) + timedelta(hours=imgTimes[0])
-# 		time2 = day_start.replace(hour=0) + timedelta(hours=imgTimes[1])
-# 		time3 = day_start.replace(hour=0) + timedelta(hours=imgTimes[2])
-# 		time4 = day_start.replace(hour=0) + timedelta(hours=imgTimes[3])
-# 		times_combined = [time1, time2, time3, time4] # To be used in 'panel' loop below
-# 		times = [datetime.strftime(time1, '%H UTC %m/%d'), datetime.strftime(time2, '%H UTC %m/%d'), datetime.strftime(time3, '%H UTC %m/%d'), datetime.strftime(time4, '%H UTC %m/%d')]
-
-# 	for panelnum, panel in enumerate(panelList):
-# 		if resize is True:
-# 			results = get_latest_image(pdt[0] + '_' + pdt[1]  + panel + '_' + pdt[2] + '_' + pdt[3], useTime=times_combined[panelnum], resize=True)
-# 		else:
-# 			results = get_latest_image(pdt[0] + '_' + pdt[1]  + panel + '_' + pdt[2] + '_' + pdt[3], useTime=times_combined[panelnum])
-		
-# 		if results[0] is None:
-# 			images.append([])
-# 		else:
-# 			images.append(results)
-
-# 	# Get a blank slide
-# 	slide_layout = prs.slide_layouts[layout['Title Alone']]
-# 	slide = prs.slides.add_slide(slide_layout)
-# 	title = slide.shapes.title
-
-# 	lefts = [0, 5, 0, 5]; tops = [0.85, 0.85, 4.2, 4.2];
-# 	widthval = 4.5 ; heightval = 3.0;
-# 	text_lefts = [2.5,7.5,2.5,7.5]; text_tops = [3.5,3.5,6.8,6.8];
-	
-# 	# Slide title
-# 	txt = slide.shapes.add_textbox(left=Inches(0.0), top=Inches(0.1), width=Inches(10.0), height=Inches(0.5))
-# 	tf = txt.text_frame
-# 	para = tf.add_paragraph()
-# 	r = para.add_run()
-# 	r.text = img_paths[pdt[0]+'_'+pdt[1]+'A_'+pdt[2]+'_' +pdt[3]][2] # General product name for the 4-panel plot (grab first time frame for forecast day)
-# 	r.font.bold = True
-# 	r.font.size = Pt(24)
-# 	para.alignment = PP_ALIGN.CENTER
-# 	if link is not None:
-# 		hlink = r.hyperlink
-# 		hlink.address = link
-    	
-    	
-#     # Now the panels
-# 	for pnum, p in enumerate(images):
-# 		#print(p[0], p[1])
-# 		if p == []: # No image found for current product, model, time, and scope configuration
-# 			continue
-# 		try:
-# 			pic = slide.shapes.add_picture(p[0], left=Inches(lefts[pnum]), top=Inches(tops[pnum]), width=Inches(widthval),height=Inches(heightval))
-# 		except:
-# 			pass
-
-# 		txt = slide.shapes.add_textbox(left=Inches(text_lefts[pnum]), top=Inches(text_tops[pnum]),width=Inches(3.5), height=Inches(0.5))
-# 		tf = txt.text_frame
-# 		para = tf.add_paragraph()
-# 		r = para.add_run()
-# 		r.text = times[pnum]
-# 		r.font.bold = True
-# 		r.font.size = Pt(24)
-# 		if link is not None:
-# 			hlink = r.hyperlink
-# 			hlink.address = link
-
-# 	add_timeline(slide, curday)
-
-# 	return prs
 
 def four_panel_image(prs, products, curday, link=False, widthval=None, heightval=None):
     images = []
     for panelnum in range(len(products)):
         results = get_latest_image(products[panelnum])
         images.append(results) # localfile, prod_str, utc_str, local_str, elapsed
-#         if results[0] is None:
-#             images.append([])
-#         else:
-#             images.append(results) # localfile, prod_str, utc_str, local_str, elapsed
 
     # Get a blank slide
     slide_layout = prs.slide_layouts[layout['Blank Slide']]
     slide = prs.slides.add_slide(slide_layout)
-#     title = slide.shapes.title
 
     lefts = [0, 5, 0, 5]; tops = [0.85, 0.85, 4.2, 4.2];
     if widthval is None:
@@ -1031,7 +862,6 @@ def four_panel_image(prs, products, curday, link=False, widthval=None, heightval
     if heightval is None:
         heightval = 3.0
     text_lefts = [0, 5, 0, 5]; text_tops = [3.5,3.5,6.8,6.8];
-#     text_lefts = [2.5,7.5,2.5,7.5]; text_tops = [3.5,3.5,6.8,6.8];
     
     # Slide titles
     txt = slide.shapes.add_textbox(left=Inches(0.0), top=Inches(0.1), width=Inches(3.33), height=Inches(0.5))
@@ -1081,15 +911,10 @@ def six_panel_image(prs, products, curday, plotTimebar=True):
     for panelnum in range(len(products)):
         results = get_latest_image(products[panelnum])
         images.append(results)
-#         if results[0] is None:
-#             images.append([])
-#         else:
-#             images.append(results)
             
     # Get a blank slide
     slide_layout = prs.slide_layouts[layout['Blank Slide']]
     slide = prs.slides.add_slide(slide_layout)
-#     title = slide.shapes.title
 
     lefts = [0, 3.33, 6.67, 0, 3.33, 6.67]
     tops = [0.85, 0.85, 0.85, 4.45, 4.45, 4.45]
@@ -1097,7 +922,6 @@ def six_panel_image(prs, products, curday, plotTimebar=True):
     heightval = 2.75;
     text_lefts = [0, 3.33, 6.67, 0, 3.33, 6.67]
     text_tops = [3.25, 3.25, 3.25, 6.8, 6.8, 6.8];
-#     text_lefts = [2.5,7.5,2.5,7.5]; text_tops = [3.5,3.5,6.8,6.8];
     
     # Slide titles
     if plotTimebar is True:
@@ -1166,43 +990,62 @@ def six_panel_image(prs, products, curday, plotTimebar=True):
 ##################################################
 ### PRINT THE PROGRAM PREAMBLE
 print('##################################################')
-print('#### IMPACTS FORECAST PRESENTATION GENERATOR #####')
+print('######## FORECAST PRESENTATION GENERATOR #########')
 print('##################################################')
 print('- This code generates a .PPT file of observation')
-print('and model fields for use in the IMPACTS briefings.')
+print('and model fields for use in the campaign weather briefings.')
 print('- Code adapted from Robert Conrick, Univ. Washington')
-print('- For questions or assistance, please contact:\n     Joseph Finlon (jfinlon@uw.edu)')
+print('- For questions or assistance, please contact:\n     Joseph Finlon (joseph.a.finlon@nasa.gov)')
 print('##################################################')
 ##################################################
-### READ THE NAMELIST
-namelistFile = sys.argv[1] # Gather the namelist file path specified when briefing.py was run
-try:
-    df = pd.read_csv(
-        namelistFile, sep='=', header=None, names=['Variable','Value'],
-        skipinitialspace=True, comment='#')
-    df['Variable'] = df['Variable'].replace(' ','',regex=True) # Remove white space if needed
-    df['Value'] = df['Value'].replace('\t','',regex=True) # Remove tabs if needed
-except:
-    print('Something went wrong parsing the namelist. Make sure it is formatted properly.')
+# ### READ THE NAMELIST
+# namelistFile = sys.argv[1] # Gather the namelist file path specified when briefing.py was run
+# try:
+#     df = pd.read_csv(
+#         namelistFile, sep='=', header=None, names=['Variable','Value'],
+#         skipinitialspace=True, comment='#')
+#     df['Variable'] = df['Variable'].replace(' ','',regex=True) # Remove white space if needed
+#     df['Value'] = df['Value'].replace('\t','',regex=True) # Remove tabs if needed
+# except:
+#     print('Something went wrong parsing the namelist. Make sure it is formatted properly.')
 
-downloadPath = df.loc[0, 'Value'] # The directory where graphics will be downloaded
-presentationPath = df.loc[1, 'Value'] # The directory to save the presentation
-presentationType = df.loc[2, 'Value'] # The type of briefing to be given (morning, evening)
-presentationHour = int(df.loc[3, 'Value']) # The 2-digit UTC hour when the briefing will be given
-modelList = df.loc[4, 'Value'].split(',') # Support multiple models for plotting
-region = df.loc[6, 'Value']
-xSection = df.loc[7, 'Value']
-show_weather = df.loc[8, 'Value']
-show_shortTerm = df.loc[9, 'Value']
-show_detailed = df.loc[10, 'Value']
-show_longTerm = df.loc[11, 'Value']
-briefingUpdate = df.loc[12, 'Value']
+# downloadPath = df.loc[0, 'Value'] # The directory where graphics will be downloaded
+# presentationPath = df.loc[1, 'Value'] # The directory to save the presentation
+# presentationType = df.loc[2, 'Value'] # The type of briefing to be given (morning, evening)
+# presentationHour = int(df.loc[3, 'Value']) # The 2-digit UTC hour when the briefing will be given
+# modelList = df.loc[4, 'Value'].split(',') # Support multiple models for plotting
+# region = df.loc[6, 'Value']
+# xSection = df.loc[7, 'Value']
+# show_weather = df.loc[8, 'Value']
+# show_shortTerm = df.loc[9, 'Value']
+# show_detailed = df.loc[10, 'Value']
+# show_longTerm = df.loc[11, 'Value']
+# briefingUpdate = df.loc[12, 'Value']
+##################################################
+##################################################
+### NEW 10/06/25
+### Parse command line arguments
+args = get_args()
+prodPath = args.model_prod_path
+downloadPath = args.download_path
+presentationPath = args.presentation_path
+presentationType = args.presentation_type
+presentationHour = args.presentation_hour
+utc_offset = abs(args.utc_offset) # only supports TZ west of prime meridian for now
+modelList = 'default' # currently defaults to models in region dict
+region = args.region
+xSection = args.cross_section
+show_weather = args.show_weather
+show_shortTerm = args.show_shortterm
+show_longTerm = args.show_longterm
+show_detailed = args.show_detailed
+briefingUpdate = args.briefing_update
 ##################################################
 ### INITIALIZE THE PROGRAM BASED ON THE NAMELIST VALUES
-if df.loc[5, 'Value']=='now':
+if args.initialize_time == 'now':
     utcnow = datetime.utcnow()
 else:
-    utcnow = datetime.strptime(df.loc[5, 'Value'], '%Y%m%d%H')
+    utcnow = datetime.strptime(args.initialize_time, '%Y%m%d%H')
     print(
         'WARNING: Some model data may have been scrubbed for the selected period...beware.')
 
@@ -1210,7 +1053,7 @@ else:
 if presentationType=='morning':
     briefingString = 'morning' # for file naming conventions
     present_time = datetime(utcnow.year, utcnow.month, utcnow.day, presentationHour, 0)
-    if utcnow.hour<8 or utcnow.hour>19:
+    if utcnow.hour < 8 or utcnow.hour > 19:
         print(
             'Are you sure you meant to select the morning briefing period? Changing to the evening period now...')
         presentationType = 'evening'
@@ -1223,36 +1066,36 @@ if presentationType=='evening':
 past12hr, current12hr, nearest1hr, nearest2hr, nearest6hr, nearest12hr = dt_nearestTimes(
     utcnow.year, utcnow.month, utcnow.day, utcnow.hour)
 past12hr_fullStr, past12hr_shortStr, past12hr_locStr, past12hr_delta = dt2string(
-    past12hr, present_time) # Satellite, Analy.
+    past12hr, present_time, utc_offset) # Satellite, Analy.
 current12hr_fullStr, current12hr_shortStr, current12hr_locStr, current12hr_delta = dt2string(
-    current12hr, present_time)
+    current12hr, present_time, utc_offset)
 nearest1hr_fullStr, nearest1hr_shortStr, nearest1hr_locStr, nearest1hr_delta = dt2string(
-    nearest1hr, present_time) # METAR
+    nearest1hr, present_time, utc_offset) # METAR
 nearest2hr_fullStr, nearest2hr_shortStr, nearest2hr_locStr, nearest2hr_delta = dt2string(
-    nearest2hr, present_time) # HRRR
+    nearest2hr, present_time, utc_offset) # HRRR
 nearest6hr_fullStr, nearest6hr_shortStr, nearest6hr_locStr, nearest6hr_delta = dt2string(
-    nearest6hr, present_time) # NAM/GFS
+    nearest6hr, present_time, utc_offset) # NAM/GFS
 nearest12hr_fullStr, nearest12hr_shortStr, nearest12hr_locStr, nearest12hr_delta = dt2string(
-    nearest12hr, present_time) # WRF
+    nearest12hr, present_time, utc_offset) # WRF
 current_fullStr, current_shortStr, current_locStr, current_delta = dt2string(
-    datetime(utcnow.year, utcnow.month, utcnow.day, utcnow.hour, utcnow.minute), present_time)
+    datetime(utcnow.year, utcnow.month, utcnow.day, utcnow.hour, utcnow.minute), present_time, utc_offset)
 
 # Assign Days 3-5 surface forecast times
 day1_fullStr, day1_shortStr, day1_locStr, day1_delta = dt2string(
     datetime(present_time.year, present_time.month, present_time.day, 12, 0)
-    + timedelta(days=1), present_time)
+    + timedelta(days=1), present_time, utc_offset)
 day2_fullStr, day2_shortStr, day2_locStr, day2_delta = dt2string(
     datetime(present_time.year, present_time.month, present_time.day, 12, 0)
-    + timedelta(days=2), present_time)
+    + timedelta(days=2), present_time, utc_offset)
 day3_fullStr, day3_shortStr, day3_locStr, day3_delta = dt2string(
     datetime(present_time.year, present_time.month, present_time.day, 12, 0)
-    + timedelta(days=3), present_time)
+    + timedelta(days=3), present_time, utc_offset)
 day4_fullStr, day4_shortStr, day4_locStr, day4_delta = dt2string(
     datetime(present_time.year, present_time.month, present_time.day, 12, 0)
-    + timedelta(days=4), present_time)
+    + timedelta(days=4), present_time, utc_offset)
 day5_fullStr, day5_shortStr, day5_locStr, day5_delta = dt2string(
     datetime(present_time.year, present_time.month, present_time.day, 12, 0)
-    + timedelta(days=5), present_time)
+    + timedelta(days=5), present_time, utc_offset)
 
 # Assign the cross section orientation to use
 xSection_dict = {
@@ -1265,6 +1108,17 @@ xSection_value = xSection_dict[xSection]['value']
 
 # Assign the zoomed in region to use
 region_dict = {
+    'atne': {
+        'value': 'Atlantic Northeast',
+        'radString': 'northeast',
+        'metarString': 'alb',
+        'models': [
+            'gfs', 'gefs', 'eps'
+        ],
+        'radarloc': 'OKX',
+        'soundLocs': ['OKX','PIT','ALB','BUF'],
+        'plumeLocs': ['OKX','CHH','ALB','BUF']
+    }, # prelim defaults for NURTURE
     'usne':{
         'value':'Northeast',
         'radString':'northeast',
@@ -1330,109 +1184,14 @@ print('   Using {} as the initialization time for the model runs'.format(nearest
 
 ##################################################
 ### POPULATE MODEL PRODUCT DIRECTORY
-if presentationType=='morning':
-    modelProducts = {
-        'cfrachigh':{
-            'name':'High Cloud Frac', 'models':{'nam3km'}, 'scope':{'swus'},
-            'times':{
-                0:[18,21,24,27], 1:[12,15,18,21,24,27], 2:[12,15,18,21,24]
-            }
-        },
-        'cfraclow':{
-            'name':'Low Cloud Frac', 'models':{'nam3km'}, 'scope':{'swus'},
-            'times':{
-                0:[18,21,24,27], 1:[12,15,18,21,24,27], 2:[12,15,18,21,24]
-            }
-        },
-        'mslp_uv850':{
-            'name':'850hPa Height, Wind', 'models':{'nam3km'}, 'scope':{'wus'},
-            'times':{
-                0:[18,21,24,27], 1:[12,15,18,21,24,27], 2:[12,15,18,21,24]
-            }
-        },
-        'totaot': {
-            'name': 'Aerosol Optical Thickness', 'models':{'geos'}, 'scope':{'ocean'},
-            'times':{
-                0:[18,21,24,27], 1:[12,15,18,21,24,27], 2:[12,15,18,21,24],
-                3:[12,18,24], 4:[12,18,24], 5:[12]
-            }
-        },
-        'duaot': {
-            'name': 'Dust AOT', 'models':{'geos'}, 'scope':{'ocean'},
-            'times':{
-               0:[18,21,24,27], 1:[12,15,18,21,24,27], 2:[12,15,18,21,24]
-            }
-        },
-        'ocaot': {
-            'name': 'Organic Carbon AOT', 'models':{'geos'}, 'scope':{'ocean'},
-            'times':{
-                0:[18,21,24,27], 1:[12,15,18,21,24,27], 2:[12,15,18,21,24]
-            }
-        },
-        'bcaot': {
-            'name': 'Black Carbon AOT', 'models':{'geos'}, 'scope':{'ocean'},
-            'times':{
-                0:[18,21,24,27], 1:[12,15,18,21,24,27], 2:[12,15,18,21,24]
-            }
-        },
-        'ref3km_frzn': {
-            'name': 'dBZ, MSLP', 'models':{'nam3km'}, 'scope':{'wus'},
-            'times':{
-                0:[18,21,24,27], 1:[12,15,18,21,24,27], 2:[12,15,18,21,24]
-            }
-        },
-        'mslp_pcpn_frzn': {
-            'name': 'Precip Rate', 'models':{'gfs', 'ecmwf'}, 'scope':{'wus'},
-            'times':{3:[12,18,24], 4:[12,18,24], 5:[12]}
-        },
-        'ir': {
-            'name': 'Brightness Temp', 'models':{'gfs'}, 'scope':{'wus'},
-            'times':{3:[12,18,24], 4:[12,18,24]}
-        },
-        'midRH': {
-            'name': '700-300hPa RH', 'models':{'gfs'}, 'scope':{'wus'},
-            'times':{5:[12]}
-        }    
-    }
-elif presentationType=='evening':
-    modelProducts = {
-        'z500_vort':{
-            'name':'500hPa Height, Vorticity', 'models':{'gfs', 'nam'}, 'scope':{'us'},
-            'times':{0:[24,30], 1:[12,18,24,30], 2:[12,18,24,30]}},
-        'temp_adv_fgen_700':{
-            'name':'700hPa TAdv, Fronto', 'models':{'gfs', 'nam'}, 'scope':{'us'},
-            'times':{0:[24,30], 1:[12,18,24,30], 2:[12,18,24,30]}},
-        'ref_frzn':{
-            'name':'dBZ, MSLP', 'models':{'gfs', 'nam'}, 'scope':{'us'},
-            'times':{0:[24,30], 1:[12,18,24,30], 2:[12,18,24,30]}},
-        'ref3km_frzn':{
-            'name':'dBZ, MSLP', 'models':{'nam3km', 'hrrr', 'fv3'}, 'scope':{'neus', 'ncus'},
-            'times':{0:[24,25,26,27,28,29,30],
-                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-        'refl_10cm':{
-            'name':'dBZ, MSLP', 'models':{'wrfgfs', 'wrfnam'}, 'scope':{'eus'},
-            'times':{0:[24,25,26,27,28,29,30],
-                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-        'dbz1km': {
-            'name': 'dBZ, MSLP', 'models':{'wrfuiuc'}, 'scope':{'mwus'},
-            'times':{0:[24,25,26,27,28,29,30],
-                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-        'prateptype_cat': {
-            'name':'pRate, MSLP', 'models':{'gfs', 'ecmwf'}, 'scope':{'us_ne', 'us_mw', 'conus'},
-            'times':{0:[24, 27, 30], 1:[9, 12, 15, 18, 21, 24, 27, 30],
-             		 3:[12, 24], 4:[12, 24], 5:[12, 24]}
-            },
-        'qpf_001h_mean_ptype': {
-            'name': 'Mean 1-h QPF, ptype', 'models':{'href'}, 'scope':{'ne', 'mw'},
-            'times':{0:[24,25,26,27,28,29,30],
-                     1:[7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]}},
-        'z500_spag':{
-            'name': '500hPa Height', 'models':{'gefs', 'naefs'}, 'scope':{'namer'},
-            'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}},
-        'enslows':{
-            'name': 'Pressure Centers', 'models':{'gefs', 'cmc','eps'}, 'scope':{'namer'},
-            'times':{3:[12, 24], 4:[12, 24], 5:[12, 24]}}
-    }
+# import external .py file containing dict of products and their models, scopes, times
+# dynamically import the config file as a module
+spec = importlib.util.spec_from_file_location('model_products_config', args.model_prod_path)
+config_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(config_module)
+
+# retrieve the dictionary from the imported module
+modelProducts = config_module.modelProducts
 ##################################################
 ### POPULATE REMOTE AND LOCAL PATHS FOR PLOTS
 # Variable follows the pattern 'Product name': (remote_path [URL], local_path [filename only], variable string)
@@ -1525,7 +1284,7 @@ for product in modelProducts.keys(): # Loop through available products
                 i = 0
                 for hour in modelProducts[product]['times'][day]: # Loop through the different forecast times
                     fcst_dt = present_time.replace(hour=0) + timedelta(days=day, hours=hour)
-                    fcst_fullStr, fcst_shortStr, fcst_locStr, fcst_delta = dt2string(fcst_dt, present_time)
+                    fcst_fullStr, fcst_shortStr, fcst_locStr, fcst_delta = dt2string(fcst_dt, present_time, utc_offset)
                     fhr_nearest6hr = int((fcst_dt - nearest6hr).total_seconds() / 3600)
                     fhr_nearest12hr = int((fcst_dt - nearest12hr).total_seconds() / 3600)
                     fhr_past12hr = int((fcst_dt - past12hr).total_seconds() / 3600)
@@ -1565,6 +1324,12 @@ for product in modelProducts.keys(): # Loop through available products
                                 remote_file = ['https://tropicaltidbits.com/analysis/models/eps/' +
                                                nearest12hr_fullStr[:10] + '/eps_lowlocs_us_' +
                                                str(int(fhr_nearest12hr/6)+1) + '.png'][0]
+                            elif model == 'gfs': # added for NURTURE
+                                fhr_string = str(int(fhr_nearest6hr / 6) + 1)
+                                remote_file = [
+                                    'https://www.tropicaltidbits.com/analysis/models/gfs/'
+                                    f'{nearest6hr_fullStr[:10]}/gfs_{product}_{scope}_{fhr_string}.png'
+                                ]
                             local_file = '{}.png'.format(product_name)
                             product_string = '{} {}'.format(model.upper(), modelProducts[product]['name'])
                         elif ('conus' in scope) or ('us_ne' in scope) or ('us_mw' in scope): # Pivotal Weather pRate graphics
@@ -1682,16 +1447,6 @@ for product in modelProducts.keys(): # Loop through available products
                                 local_file = '{}.png'.format(product_name)
                                 product_string = '{} {}'.format(
                                     model.upper(), modelProducts[product]['name'])
-                            # ---! REMOVE elif STATEMENT !---
-                            elif (model=='hrrr'):
-                                if product=='ref3km_frzn':
-                                    scope_string = 't3' if scope=='neus' else 't7'
-                                    remote_file = ['https://rapidrefresh.noaa.gov/hrrr/HRRR/for_web/hrrr_ncep_jet/' +\
-                                        nearest6hr_fullStr[:10] + '/' + scope_string + '/1ref_' + scope_string +\
-                                        'sfc_f' + str(int(fhr_nearest6hr)) + '.png'][0]
-                                local_file = '{}.png'.format(product_name)
-                                product_string = '{} {}'.format(model.upper(), modelProducts[product]['name'])
-                            # ------------------------------------ #
                             elif (model=='wrfgfs') or (model=='wrfnam'):
                                 remote_file = 'http://itpa.somas.stonybrook.edu/sbuwrf/{}/{}.{}.d02.{}.gif'.format(
                                     nearest12hr_fullStr[:10], model[3:].upper(), product, str(fhr_nearest12hr))
@@ -1706,11 +1461,6 @@ for product in modelProducts.keys(): # Loop through available products
                                 product_string = (
                                     model.upper() + ' ' + modelProducts[product]['name'])
                             elif model=='href':
-                                #remote_file = (
-                                    #'https://atmos.uw.edu/~jfinlon/impacts/href_images/'
-                                    #+ nearest12hr_fullStr[:8] + '/model.HREF_03km.'
-                                    #+ nearest12hr_fullStr + '.' + str(fhr_nearest12hr).zfill(3)
-                                    #+ '_' + product + '_' + scope + '.jpg') # --OLD--
                                 remote_file = (
                                     'http://catalog.eol.ucar.edu/impacts_2023/model/href_03km/'
                                     + nearest12hr_fullStr[:8] + '/' + nearest12hr_fullStr[8:10]
@@ -1765,12 +1515,8 @@ def build_presentation(nearest6hr, present_time):
         title_slide.shapes.title.text = 'Weather Briefing Update'
 
     # Subtitle is a "placeholder" object
-    if presentationType == 'morning':
-        title_slide.placeholders[1].text = "{} UTC\nForecaster Name".format(
-            datetime.strftime(present_time, '%d %b %Y %H%M'))
-    elif presentationType == 'evening':
-        title_slide.placeholders[1].text = "{} UTC\nForecaster Name".format(
-            datetime.strftime(present_time, '%d %b %Y %H%M'))
+    title_slide.placeholders[1].text = "{} UTC\nForecaster Name".format(
+        datetime.strftime(present_time, '%d %b %Y %H%M'))
         
     ### START OF THE BRIEFING POWERPOINT TEMPLATE
     prs = full_summary(prs, 'Briefing Headlines', -1)
@@ -1791,10 +1537,6 @@ def build_presentation(nearest6hr, present_time):
 
         # Current weather slides
         print('\n  Making Current Weather slides')
-        # prs = four_panel_image(
-        #     prs, ['rad_current_us', 'sat_current_conus',
-        #           'z500_current_uair_us', 'anl_current_surf_atl'], 0, link=True)
-        # prs = full_slide_image(prs, 'haz_current', 0, datetime.utcnow(), width=8, height=6.9)
         if presentationType == 'morning':
             prs = full_slide_image(
                 prs, 'mgram_edw2', 0, datetime.now(timezone.utc),
@@ -1818,32 +1560,22 @@ def build_presentation(nearest6hr, present_time):
         # Day 0 slides
         print('\n Making Day 0 slides')
         day = 0            
-        for hour in [18, 21, 24]:
-            product1 = 'cfrachigh_D0H{}_nam3km_swus'.format(str(hour).zfill(2))
-            product2 = 'cfraclow_D0H{}_nam3km_swus'.format(str(hour).zfill(2))
-            product3 = 'ref3km_frzn_D0H{}_nam3km_wus'.format(str(hour).zfill(2))
-            product4 = 'mslp_uv850_D0H{}_nam3km_wus'.format(str(hour).zfill(2))
-            product5 = 'totaot_D0H{}_geos_ocean'.format(str(hour).zfill(2))
-            product6 = 'duaot_D0H{}_geos_ocean'.format(str(hour).zfill(2))
-            product7 = 'ocaot_D0H{}_geos_ocean'.format(str(hour).zfill(2))
-            product8 = 'bcaot_D0H{}_geos_ocean'.format(str(hour).zfill(2))
+        for hour in [18, 24]:
+            product1 = 'DTpres_D0H{}_gfs_namer'.format(str(hour).zfill(2))
+            product2 = 'pv330K_D0H{}_gfs_namer'.format(str(hour).zfill(2))
+            product3 = 'uv250_D0H{}_gfs_namer'.format(str(hour).zfill(2))
+            product4 = 'z500_vort_D0H{}_gfs_namer'.format(str(hour).zfill(2))
             prs = four_panel_image(prs, [product1, product2, product3, product4], 0)
-            prs = four_panel_image(prs, [product5, product6, product7, product8], 0)
 
         # Day 1 and 2 slides
         for day in [1, 2]:
             print('\n Making Day {} slides'.format(str(day)))
-            for hour in [15,18,21,24]:
-                product1 = 'cfrachigh_D{}H{}_nam3km_swus'.format(str(day), str(hour).zfill(2))
-                product2 = 'cfraclow_D{}H{}_nam3km_swus'.format(str(day), str(hour).zfill(2))
-                product3 = 'ref3km_frzn_D{}H{}_nam3km_wus'.format(str(day), str(hour).zfill(2))
-                product4 = 'mslp_uv850_D{}H{}_nam3km_wus'.format(str(day), str(hour).zfill(2))
-                product5 = 'totaot_D{}H{}_geos_ocean'.format(str(day), str(hour).zfill(2))
-                product6 = 'duaot_D{}H{}_geos_ocean'.format(str(day), str(hour).zfill(2))
-                product7 = 'ocaot_D{}H{}_geos_ocean'.format(str(day), str(hour).zfill(2))
-                product8 = 'bcaot_D{}H{}_geos_ocean'.format(str(day), str(hour).zfill(2))
+            for hour in [12, 18, 24]:
+                product1 = 'DTpres_D{}H{}_gfs_namer'.format(str(day), str(hour).zfill(2))
+                product2 = 'pv330K_D{}H{}_gfs_namer'.format(str(day), str(hour).zfill(2))
+                product3 = 'uv250_D{}H{}_gfs_namer'.format(str(day), str(hour).zfill(2))
+                product4 = 'z500_vort_D{}H{}_gfs_namer'.format(str(day), str(hour).zfill(2))
                 prs = four_panel_image(prs, [product1, product2, product3, product4], day)
-                prs = four_panel_image(prs, [product5, product6, product7, product8], day)
 
         # Day 0-2 Summary
         prs = objectives_slide(prs, 'Day 0-2 Summary', [0, 1, 2])
@@ -1869,7 +1601,6 @@ def build_presentation(nearest6hr, present_time):
         for hour in hourList:
             if (region=='usne') and ('wrfgfs' in modelList) and ('wrfnam' in modelList) and ('nam3km' in modelList):
                 product1 = 'refl_10cm_D0H{}_wrfgfs_eus'.format(str(hour).zfill(2))
-                #product2 = 'ref_frzn_D0H{}_gfs_neus'.format(str(int(6*np.floor(hour/6.))).zfill(2))
                 product2 = 'ref3km_frzn_D0H{}_hrrr_neus'.format(str(hour).zfill(2))
                 product3 = 'prateptype_cat_D0H{}_gfs_us_ne'.format(
                     str(int(3 * np.floor(hour / 3.))).zfill(2)
@@ -1879,12 +1610,10 @@ def build_presentation(nearest6hr, present_time):
                 product6 = 'prateptype_cat_D0H{}_ecmwf_us_ne'.format(
                     str(int(3 * np.floor(hour / 3.))).zfill(2)
                 )
-                #product6 = 'qpf_001h_mean_ptype_D0H{}_href_ne'.format(str(hour).zfill(2))
                 prs = six_panel_image(
                     prs, [product1, product2, product3, product4, product5, product6], 0)
             elif (region=='usmw') and ('nam3km' in modelList):
                 product1 = 'dbz1km_D0H{}_wrfuiuc_mwus'.format(str(hour).zfill(2))
-                #product2 = 'ref_frzn_D0H{}_gfs_ncus'.format(str(int(6*np.floor(hour/6.))).zfill(2))
                 product2 = 'ref3km_frzn_D0H{}_hrrr_ncus'.format(str(hour).zfill(2))
                 product3 = 'prateptype_cat_D0H{}_gfs_us_mw'.format(
                     str(int(3 * np.floor(hour / 3.))).zfill(2)
@@ -1894,7 +1623,6 @@ def build_presentation(nearest6hr, present_time):
                 product6 = 'prateptype_cat_D0H{}_ecmwf_us_mw'.format(
                     str(int(3 * np.floor(hour / 3.))).zfill(2)
                 )
-                #product6 = 'qpf_001h_mean_ptype_D0H{}_href_mw'.format(str(hour).zfill(2))
                 prs = six_panel_image(
                     prs, [product1, product2, product3, product4, product5, product6], 0)
 
@@ -1903,15 +1631,12 @@ def build_presentation(nearest6hr, present_time):
         for hour in range(7, 31):
             if (region=='usne') and ('wrfgfs' in modelList) and ('wrfnam' in modelList):
                 product1 = 'refl_10cm_D1H{}_wrfgfs_eus'.format(str(hour).zfill(2))
-#                 product2 = 'ref_frzn_D1H{}_gfs_neus'.format(
-#                     str(int(6*np.floor(hour/6.))).zfill(2)) if hour>=12 else 'ref_frzn_D0H30_gfs_neus'
                 product2 = 'ref3km_frzn_D1H{}_hrrr_neus'.format(str(hour).zfill(2))
                 product3 = 'prateptype_cat_D1H{}_gfs_us_ne'.format(
                     str(int(3 * np.floor(hour / 3.))).zfill(2)
                 ) if hour >= 9 else 'prateptype_cat_D0H30_gfs_us_ne'
                 product4 = 'refl_10cm_D1H{}_wrfnam_eus'.format(str(hour).zfill(2))
                 product5 = 'ref3km_frzn_D1H{}_nam3km_neus'.format(str(hour).zfill(2))
-                #product6 = 'qpf_001h_mean_ptype_D1H{}_href_ne'.format(str(hour).zfill(2))
                 product6 = 'prateptype_cat_D1H{}_ecmwf_us_ne'.format(
                     str(int(3 * np.floor(hour / 3.))).zfill(2)
                 ) if hour >= 9 else 'prateptype_cat_D0H30_ecmwf_us_ne'
@@ -1920,15 +1645,12 @@ def build_presentation(nearest6hr, present_time):
                 )
             elif (region=='usmw') and ('nam3km' in modelList):
                 product1 = 'dbz1km_D1H{}_wrfuiuc_mwus'.format(str(hour).zfill(2))
-#                 product2 = 'ref_frzn_D1H{}_gfs_ncus'.format(
-#                     str(int(6*np.floor(hour/6.))).zfill(2)) if hour>=12 else 'ref_frzn_D0H30_gfs_ncus'
                 product2 = 'ref3km_frzn_D1H{}_hrrr_ncus'.format(str(hour).zfill(2))
                 product3 = 'prateptype_cat_D1H{}_gfs_us_mw'.format(
                     str(int(3 * np.floor(hour / 3.))).zfill(2)
                 ) if hour >= 9 else 'prateptype_cat_D0H30_gfs_us_mw'
                 product4 = 'ref3km_frzn_D1H{}_fv3_ncus'.format(str(hour).zfill(2))
                 product5 = 'ref3km_frzn_D1H{}_nam3km_ncus'.format(str(hour).zfill(2))
-                #product6 = 'qpf_001h_mean_ptype_D1H{}_href_mw'.format(str(hour).zfill(2))
                 product6 = 'prateptype_cat_D1H{}_ecmwf_us_mw'.format(
                     str(int(3 * np.floor(hour / 3.))).zfill(2)
                 ) if hour >= 9 else 'prateptype_cat_D0H30_ecmwf_us_mw'
@@ -1944,8 +1666,6 @@ def build_presentation(nearest6hr, present_time):
             utcnow.year, utcnow.month, utcnow.day, 6, 0)+timedelta(days=6))
         prs = timeline_slide(prs, 3, presentationType, products=['anl_d3_surf_conus', 'anl_d4_surf_conus',
                                                                  'anl_d5_surf_conus'])
-        #prs = two_panel_image(prs, ['snprob_day3_us', 'lowtrks_us'], 3, [datetime.utcnow(), datetime.utcnow()],
-                              #title='Day 3 Overview')
 
         # Day 3+ slides
         print('\n  Making Day 3+ slides')
