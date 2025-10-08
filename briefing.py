@@ -222,7 +222,7 @@ def get_latest_image(product):
             
     if not_found:
         print('  WARNING: Did not find {:s} image'.format(product))
-        return (None, prod_str, utc_str, local_str, elapsed)
+        return (f'{basedir}/grid_blank.png', prod_str, utc_str, local_str, elapsed)
     else: # Return the path and other info
         return (localfile, prod_str, utc_str, local_str, elapsed)
 
@@ -998,30 +998,6 @@ print('- Code adapted from Robert Conrick, Univ. Washington')
 print('- For questions or assistance, please contact:\n     Joseph Finlon (joseph.a.finlon@nasa.gov)')
 print('##################################################')
 ##################################################
-# ### READ THE NAMELIST
-# namelistFile = sys.argv[1] # Gather the namelist file path specified when briefing.py was run
-# try:
-#     df = pd.read_csv(
-#         namelistFile, sep='=', header=None, names=['Variable','Value'],
-#         skipinitialspace=True, comment='#')
-#     df['Variable'] = df['Variable'].replace(' ','',regex=True) # Remove white space if needed
-#     df['Value'] = df['Value'].replace('\t','',regex=True) # Remove tabs if needed
-# except:
-#     print('Something went wrong parsing the namelist. Make sure it is formatted properly.')
-
-# downloadPath = df.loc[0, 'Value'] # The directory where graphics will be downloaded
-# presentationPath = df.loc[1, 'Value'] # The directory to save the presentation
-# presentationType = df.loc[2, 'Value'] # The type of briefing to be given (morning, evening)
-# presentationHour = int(df.loc[3, 'Value']) # The 2-digit UTC hour when the briefing will be given
-# modelList = df.loc[4, 'Value'].split(',') # Support multiple models for plotting
-# region = df.loc[6, 'Value']
-# xSection = df.loc[7, 'Value']
-# show_weather = df.loc[8, 'Value']
-# show_shortTerm = df.loc[9, 'Value']
-# show_detailed = df.loc[10, 'Value']
-# show_longTerm = df.loc[11, 'Value']
-# briefingUpdate = df.loc[12, 'Value']
-##################################################
 ##################################################
 ### NEW 10/06/25
 ### Parse command line arguments
@@ -1106,19 +1082,21 @@ xSection_dict = {
 }
 xSection_value = xSection_dict[xSection]['value']
 
-# Assign the zoomed in region to use
+# Assign campaign- or regional-specific defaults to use
 region_dict = {
+    # /// NURTURE: UPDATE HERE AS NEEDED /// #
     'atne': {
         'value': 'Atlantic Northeast',
         'radString': 'northeast',
         'metarString': 'alb',
         'models': [
-            'gfs', 'gefs', 'eps'
+            'gfs', 'gefs', 'eps', 'geos'
         ],
         'radarloc': 'OKX',
         'soundLocs': ['OKX','PIT','ALB','BUF'],
         'plumeLocs': ['OKX','CHH','ALB','BUF']
-    }, # prelim defaults for NURTURE
+    }, # prelim defaults for NURTURE (atne = Atlantic Northeast)
+    # //////////////////////////////////////////
     'usne':{
         'value':'Northeast',
         'radString':'northeast',
@@ -1209,6 +1187,10 @@ mgram_edw2_url = (
 # Query the skew-T soundings
 #query_skewt(72393, current12hr_fullStr) # VBG (Vandenberg, CA)
 
+# ////////////////////////////////////////////////////// #
+# /// NURTURE: UPDATE HERE /// #
+# this dict is for images that go in the Current Weather section
+# these do not rely on specific forecast hours like model products do
 img_paths = {
     'rad_current_edw': (
         '{}{}_BREF_color.png'.format(rad_edw_url, edw_datestr),
@@ -1254,6 +1236,8 @@ img_paths = {
         'surfanl_d5_conus.gif', 'Day 5 Surface Forecast',
         day5_shortStr, day5_locStr, day5_delta)
 }
+# ////////////////////////////////////////////////////// #
+# ////////////////////////////////////////////////////// #
 
 # --- Now gather the model plots ---
 # Products to skip. Follows the tuple format: (model, product name)
@@ -1289,6 +1273,8 @@ for product in modelProducts.keys(): # Loop through available products
                     fhr_nearest12hr = int((fcst_dt - nearest12hr).total_seconds() / 3600)
                     fhr_past12hr = int((fcst_dt - past12hr).total_seconds() / 3600)
 
+                    # ////////////////////////////////////////////////////// #
+                    # /// NURTURE: UPDATE HERE AS NEEDED /// #
                     for scope in sorted(modelProducts[product]['scope']):
                         product_name = '{}_D{}H{}_{}_{}'.format(product, str(day), str(hour).zfill(2), model, scope)
                         if 'xsect' in scope: # Model cross section
@@ -1302,7 +1288,7 @@ for product in modelProducts.keys(): # Loop through available products
                                 nearest12hr_fullStr[:10], model[3:].upper(), fcstSoundLoc, str(fhr_nearest12hr))
                             local_file = '{}_{}.gif'.format(product_name, fcstSoundLoc)
                             product_string = '{}-{} {} Sounding'.format(model[:3].upper(), model[3:].upper(), fcstSoundLoc)
-                        elif 'namer' in scope: # ensemble spaghetti plots
+                        elif 'namer' in scope: # larger domain plots
                             if model=='gefs':
                                 if product=='z500_spag':
                                     remote_file = ['https://mag.ncep.noaa.gov/data/gefs-spag/' +
@@ -1473,6 +1459,8 @@ for product in modelProducts.keys(): # Loop through available products
                         img_paths[product_name] = (remote_file, local_file, product_string,
                                                    fcst_shortStr, fcst_locStr, fcst_delta)
                         print(remote_file)
+                    # ////////////////////////////////////////////////////// #
+                    # ////////////////////////////////////////////////////// #
 ##################################################
 ### BUILD POWERPOINT FILE
 # Different default possibilities for the slide layout
@@ -1490,6 +1478,7 @@ def build_presentation(nearest6hr, present_time):
     print('\nBuilding the PowerPoint presentation...\n  Images will be saved to {}.'.format(downloadPath))
     
     # Switch to the presentation directory
+    global basedir
     basedir = os.getcwd()
     os.chdir(downloadPath)
 
@@ -1527,17 +1516,18 @@ def build_presentation(nearest6hr, present_time):
 #             prs, 'Past {} Hours'.format(str(-1*past12hr_delta)), -1, past12hr, present_time)
         prs = bumper_slide(
             prs, 'Current Weather', [-1, 0], past12hr, present_time)
-        # prs = four_panel_image(
-        #     prs, ['rad_minus12_conus', 'sat_minus12_conus',
-        #           'z500_minus12_uair_us', 'anl_minus12_surf_atl'], -1, link=True)
+        
+        # /// NURTURE: UPDATE HERE AS NEEDED /// #
         prs = two_panel_image(
             prs, ['rad_current_edw', 'haz_current'], 0,
             [datetime.now(timezone.utc), datetime.now(timezone.utc)], title='Regional Conditions'
         )
+        # ////////////////////////////////////// #
 
         # Current weather slides
         print('\n  Making Current Weather slides')
         if presentationType == 'morning':
+            # /// NURTURE: UPDATE HERE AS NEEDED /// #
             prs = full_slide_image(
                 prs, 'mgram_edw2', 0, datetime.now(timezone.utc),
                 width=8, height=5.85, title='Edwards AFB Meteogram'
@@ -1546,6 +1536,7 @@ def build_presentation(nearest6hr, present_time):
                 prs, 'viirs_current', 0, datetime.now(timezone.utc),
                 width=8.3, height=5, title='Current Fire + Water Vapor Imagery'
             )
+            # ////////////////////////////////////// #
         # prs = full_summary(
         #     prs, 'Summary of Past {} Hours'.format(str(-1*past12hr_delta)), [-1, 0])
 
@@ -1553,29 +1544,35 @@ def build_presentation(nearest6hr, present_time):
         prs = bumper_slide(prs, 'Synoptic Forecast', [0, 1, 2], datetime(
             utcnow.year, utcnow.month, utcnow.day, 18, 0), datetime(
             utcnow.year, utcnow.month, utcnow.day, 6, 0)+timedelta(days=3))
+        # /// NURTURE: UPDATE HERE AS NEEDED /// #
         prs = timeline_slide(
             prs, [0, 1, 2], presentationType, products=['anl_d1_surf_conus', 'anl_d2_surf_conus']
         )
+        # ////////////////////////////////////// #
 
         # Day 0 slides
         print('\n Making Day 0 slides')
         day = 0            
         for hour in [18, 24]:
+            # /// NURTURE: UPDATE HERE AS NEEDED /// #
             product1 = 'DTpres_D0H{}_gfs_namer'.format(str(hour).zfill(2))
             product2 = 'pv330K_D0H{}_gfs_namer'.format(str(hour).zfill(2))
             product3 = 'uv250_D0H{}_gfs_namer'.format(str(hour).zfill(2))
             product4 = 'z500_vort_D0H{}_gfs_namer'.format(str(hour).zfill(2))
             prs = four_panel_image(prs, [product1, product2, product3, product4], 0)
+            # ////////////////////////////////////// #
 
         # Day 1 and 2 slides
         for day in [1, 2]:
             print('\n Making Day {} slides'.format(str(day)))
             for hour in [12, 18, 24]:
+                # /// NURTURE: UPDATE HERE AS NEEDED /// #
                 product1 = 'DTpres_D{}H{}_gfs_namer'.format(str(day), str(hour).zfill(2))
                 product2 = 'pv330K_D{}H{}_gfs_namer'.format(str(day), str(hour).zfill(2))
                 product3 = 'uv250_D{}H{}_gfs_namer'.format(str(day), str(hour).zfill(2))
                 product4 = 'z500_vort_D{}H{}_gfs_namer'.format(str(day), str(hour).zfill(2))
                 prs = four_panel_image(prs, [product1, product2, product3, product4], day)
+                # ////////////////////////////////////// #
 
         # Day 0-2 Summary
         prs = objectives_slide(prs, 'Day 0-2 Summary', [0, 1, 2])
@@ -1599,6 +1596,7 @@ def build_presentation(nearest6hr, present_time):
         
 
         for hour in hourList:
+            # /// NURTURE: UPDATE HERE AS NEEDED /// #
             if (region=='usne') and ('wrfgfs' in modelList) and ('wrfnam' in modelList) and ('nam3km' in modelList):
                 product1 = 'refl_10cm_D0H{}_wrfgfs_eus'.format(str(hour).zfill(2))
                 product2 = 'ref3km_frzn_D0H{}_hrrr_neus'.format(str(hour).zfill(2))
@@ -1625,10 +1623,12 @@ def build_presentation(nearest6hr, present_time):
                 )
                 prs = six_panel_image(
                     prs, [product1, product2, product3, product4, product5, product6], 0)
+            # ////////////////////////////////////// #
 
         day = 1
         print('\n Making Detailed Day 1 slides')
         for hour in range(7, 31):
+            # /// NURTURE: UPDATE HERE AS NEEDED /// #
             if (region=='usne') and ('wrfgfs' in modelList) and ('wrfnam' in modelList):
                 product1 = 'refl_10cm_D1H{}_wrfgfs_eus'.format(str(hour).zfill(2))
                 product2 = 'ref3km_frzn_D1H{}_hrrr_neus'.format(str(hour).zfill(2))
@@ -1657,6 +1657,7 @@ def build_presentation(nearest6hr, present_time):
                 prs = six_panel_image(
                     prs, [product1, product2, product3, product4, product5, product6], 1
                 )
+            # ////////////////////////////////////// #
 
         prs = objectives_slide(prs, 'Detailed Forecast Summary', [0, 1])
 
@@ -1671,18 +1672,22 @@ def build_presentation(nearest6hr, present_time):
         print('\n  Making Day 3+ slides')
         for day in [3, 4]:
             for hour in [12, 18, 24]:
+                # /// NURTURE: UPDATE HERE AS NEEDED /// #
                 product1 = 'mslp_pcpn_frzn_D{}H{}_gfs_wus'.format(str(day), str(hour).zfill(2))
                 product2 = 'mslp_pcpn_frzn_D{}H{}_ecmwf_wus'.format(str(day), str(hour).zfill(2))
                 product3 = 'ir_D{}H{}_gfs_wus'.format(str(day), str(hour).zfill(2))
                 product4 = 'totaot_D{}H{}_geos_ocean'.format(str(day), str(hour).zfill(2))
                 prs = four_panel_image(prs, [product1, product2, product3, product4], 3)
+                # ////////////////////////////////////// #
         day = 5
         for hour in [12]:
+            # /// NURTURE: UPDATE HERE AS NEEDED /// #
             product1 = 'mslp_pcpn_frzn_D{}H{}_gfs_wus'.format(str(day), str(hour).zfill(2))
             product2 = 'mslp_pcpn_frzn_D{}H{}_ecmwf_wus'.format(str(day), str(hour).zfill(2))
             product3 = 'midRH_D{}H{}_gfs_wus'.format(str(day), str(hour).zfill(2))
             product4 = 'totaot_D{}H{}_geos_ocean'.format(str(day), str(hour).zfill(2))
             prs = four_panel_image(prs, [product1, product2, product3, product4], 3)
+            # ////////////////////////////////////// #
 
         # Day 3+ Summary
         prs = objectives_slide(prs, 'Day 3+ Summary', day)
