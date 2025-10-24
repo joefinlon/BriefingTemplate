@@ -20,6 +20,7 @@
 from datetime import time as dtime
 from datetime import datetime, timedelta, timezone
 import time
+import ssl
 import argparse
 import importlib.util
 from pptx import Presentation
@@ -36,6 +37,7 @@ from urllib.error import HTTPError
 import requests
 import numpy as np
 import pandas as pd
+ssl._create_default_https_context = ssl._create_unverified_context
 ##################################################
 ### AUXILLARY FUNCTIONS
 
@@ -771,15 +773,91 @@ def full_slide_image(prs, product, curday, imgTime, ftime=None, width=None, heig
     
     return prs
     
-def two_panel_image(prs, products, curday, imgTimes, link=False, lowertext=False, title=None):
-    # Function to plot two images side-by-side
-    # Width is set in the function -- not set as an option to the user
+def two_panel_image(prs, products, curday, imgTimes, link=False,
+                    lowertext=False, title=None, stack='horizontal'):
+    '''
+    Function to plot two images side-by-side. Width is hard coded in the function for stability.
+    This updated routine ignores the user title completely, will be deprecated in a later release.
+    
+    Parameters:
+    -----------
+    orientation : str
+        'horizontal' for side-by-side portrait images (default)
+        'vertical' for stacked landscape images
+    '''
 
+    # get image data
+    images = []
+    for panelnum in range(len(products)):
+        results = get_latest_image(products[panelnum])
+        images.append(results)
+        
     # Get a blank slide layout and add it to the presentation
-    slide_layout = prs.slide_layouts[layout['Title Alone']]
+    slide_layout = prs.slide_layouts[layout['Blank Slide']]
     slide = prs.slides.add_slide(slide_layout)
 
-    # Grab the images
+    # Define positioning based on orientation
+    if stack == 'vertical':
+        # landscape images stacked vertically
+        lefts = [2.25, 2.25]  # centered horizontally
+        tops = [0.85, 4.1]    # top and bottom positions
+        widthval = 5.         # image width
+        heightval = 3.        # image height
+        text_lefts = lefts
+        text_tops = [3.5, 6.8]  # below each image
+        
+    else:  # orientation == 'horizontal' (default)
+        # portrait images side-by-side
+        lefts = [0.5, 5.5]     # left and right positions
+        tops = [0.85, 0.85]       # same vertical position
+        widthval = 4.          # image width
+        heightval = 6.         # image height
+        text_lefts = lefts
+        text_tops = [6.5, 6.5]  # below images
+
+    # Slide titles
+    txt = slide.shapes.add_textbox(left=Inches(0.0), top=Inches(0.1), width=Inches(3.33), height=Inches(0.5))
+    tf = txt.text_frame; para = tf.add_paragraph();
+    if images[0][4] < 0:
+        r = para.add_run(); r.text = 'Briefing - {} hr'.format(str(-1*images[0][4]));
+    else:
+        r = para.add_run(); r.text = 'Briefing + {} hr'.format(str(images[0][4]));
+    r.font.bold = True; r.font.size = Pt(24);
+    para.alignment = PP_ALIGN.LEFT
+    
+    txt = slide.shapes.add_textbox(left=Inches(3.33), top=Inches(0.1), width=Inches(3.34), height=Inches(0.5))
+    tf = txt.text_frame; para = tf.add_paragraph();
+    r = para.add_run(); r.text = images[0][2]; r.font.bold = True; r.font.size = Pt(24);
+    para.alignment = PP_ALIGN.CENTER
+    
+    txt = slide.shapes.add_textbox(left=Inches(6.67), top=Inches(0.1), width=Inches(3.33), height=Inches(0.5))
+    tf = txt.text_frame; para = tf.add_paragraph();
+    r = para.add_run(); r.text = images[0][3]; r.font.bold = True; r.font.size = Pt(24);
+    para.alignment = PP_ALIGN.RIGHT
+    
+    # Now the panels
+    for panelnum, panel in enumerate(images):
+        txt = slide.shapes.add_textbox(left=Inches(text_lefts[panelnum]), top=Inches(text_tops[panelnum]),
+                                       width=Inches(3.5), height=Inches(0.5))
+        tf = txt.text_frame
+        para = tf.add_paragraph()
+        r = para.add_run(); r.text = panel[1]; r.font.bold = True; r.font.size = Pt(18)
+        
+        if panel[0] is None: # No image found for current product, model, time, and scope configuration
+            continue
+        try:
+            pic = slide.shapes.add_picture(
+                panel[0], left=Inches(lefts[panelnum]), top=Inches(tops[panelnum]),
+                width=Inches(widthval),height=Inches(heightval))
+            if (link is True) and (img_paths[products[panelnum]][0] is not None):
+                pic.click_action.hyperlink.address = img_paths[products[panelnum]][0]
+        except:
+            pass
+    
+    # Add timeline
+    add_timeline(slide, curday)
+
+    '''# Grab the images
     pp = 0
 
     for product in products:
@@ -788,11 +866,6 @@ def two_panel_image(prs, products, curday, imgTimes, link=False, lowertext=False
             leftval = 0
         else:
             leftval = widthval + 0.2
-
-        if title is not None:
-            slide.shapes.title.text = title
-        else:
-            slide.shapes.title.text = ''
         
         txt         =   slide.shapes.add_textbox(Inches(leftval),Inches(1.0),Inches(widthval),Inches(0.5))
         tf          =   txt.text_frame
@@ -809,21 +882,6 @@ def two_panel_image(prs, products, curday, imgTimes, link=False, lowertext=False
             r = para.add_run(); r.text = lowertext[pp]; r.font.bold = True; r.font.size = Pt(16)
             tf.word_wrap = True
             para.alignment = PP_ALIGN.CENTER
-
-            '''title = slide.shapes.title; title.top = Inches(0.5); title.left = Inches(leftval); title.width=Inches(widthval)
-            p = title.text_frame.paragraphs[0]
-            r = p.add_run()
-            r.text = ''
-            r.font.size=Pt(16)
-            txt         =   slide.shapes.add_textbox(Inches(leftval),Inches(6.5),Inches(widthval),Inches(0.5))
-            tf          =   txt.text_frame
-            para        =   tf.add_paragraph()
-            r           =   para.add_run()
-            r.text      =   lowertext[pp]
-            r.font.size = Pt(16)
-            r.font.bold = False
-            para.alignment = PP_ALIGN.CENTER 
-            ''' 
 
         results = get_latest_image(product)
 
@@ -843,6 +901,7 @@ def two_panel_image(prs, products, curday, imgTimes, link=False, lowertext=False
     
     # Add timeline
     add_timeline(slide, curday)
+    '''
 
     return prs
 
